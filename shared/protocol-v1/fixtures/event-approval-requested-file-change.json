@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 10,
+  "event": "approval.requested",
+  "data": {
+    "approval": {
+      "approvalId": "approval_file_001",
+      "threadId": "thr_alpha",
+      "turnId": "turn_alpha_01",
+      "epoch": "epoch_A1b2C3d4E5f6G7h8",
+      "seq": 10,
+      "approvalType": "file_change",
+      "title": "Apply file changes",
+      "summary": "The task proposes changes under the configured project root.",
+      "details": {
+        "type": "file_change",
+        "itemId": "item_file_change_001",
+        "paths": null,
+        "grantRoot": "C:/workspace/demo",
+        "allowedDecisions": ["approve_once", "decline", "cancel"]
+      },
+      "requestedAt": "2026-08-10T08:00:10Z"
+    }
+  }
+}

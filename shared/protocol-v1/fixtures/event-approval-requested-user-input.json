@@ -1,0 +1,36 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 12,
+  "event": "approval.requested",
+  "data": {
+    "approval": {
+      "approvalId": "approval_input_001",
+      "threadId": "thr_alpha",
+      "turnId": "turn_alpha_01",
+      "epoch": "epoch_A1b2C3d4E5f6G7h8",
+      "seq": 12,
+      "approvalType": "user_input",
+      "title": "Task needs input",
+      "summary": "Choose the target and provide an optional note.",
+      "details": {
+        "type": "user_input",
+        "questions": [
+          {
+            "questionId": "question_target",
+            "prompt": "Which target should the task use?",
+            "required": true,
+            "options": ["Android", "Desktop"]
+          },
+          {
+            "questionId": "question_note",
+            "prompt": "Add a note if needed.",
+            "required": false,
+            "options": []
+          }
+        ]
+      },
+      "requestedAt": "2026-08-10T08:00:12Z"
+    }
+  }
+}

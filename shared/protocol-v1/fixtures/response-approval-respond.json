@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "id": "req_approval_respond_001",
+  "result": {
+    "accepted": true,
+    "approvalId": "approval_command_001"
+  }
+}

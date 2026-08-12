@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "id": "req_task_create_001",
+  "result": {
+    "task": {
+      "threadId": "thr_new_001",
+      "projectId": "project_demo_01",
+      "title": "Inspect the project",
+      "status": "running",
+      "activeTurnId": "turn_new_001",
+      "attention": false,
+      "progress": { "kind": "unknown" },
+      "plan": [],
+      "lastMessagePreview": null,
+      "updatedAt": "2026-08-10T08:00:00Z"
+    }
+  }
+}

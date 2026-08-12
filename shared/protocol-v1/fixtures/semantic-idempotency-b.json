@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "req_idempotency_b",
+  "op": "task.send",
+  "params": {
+    "clientCommandId": "cmd_20260810_duplicate_01",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "threadId": "thr_alpha",
+    "expectedTurnId": "turn_alpha_01",
+    "text": "Continue with option B."
+  }
+}

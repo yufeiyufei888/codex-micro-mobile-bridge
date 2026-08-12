@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "req_slot_assign_001",
+  "result": {
+    "accepted": true,
+    "slot": 3,
+    "threadId": "thr_alpha"
+  }
+}

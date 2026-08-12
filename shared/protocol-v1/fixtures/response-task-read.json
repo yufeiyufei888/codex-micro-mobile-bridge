@@ -1,0 +1,43 @@
+{
+  "v": 1,
+  "id": "req_task_read_001",
+  "result": {
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "seq": 6,
+    "task": {
+      "threadId": "thr_alpha",
+      "projectId": "project_demo_01",
+      "title": "Protocol review",
+      "status": "waiting_approval",
+      "activeTurnId": "turn_alpha_01",
+      "attention": true,
+      "progress": { "kind": "unknown" },
+      "plan": [
+        {
+          "stepId": "step_schema",
+          "text": "Define the canonical schema",
+          "status": "completed"
+        },
+        {
+          "stepId": "step_fixtures",
+          "text": "Validate shared fixtures",
+          "status": "in_progress"
+        }
+      ],
+      "lastMessagePreview": "A command needs approval.",
+      "updatedAt": "2026-08-10T08:00:05Z"
+    },
+    "messages": [
+      {
+        "messageId": "message_alpha_02",
+        "threadId": "thr_alpha",
+        "turnId": "turn_alpha_01",
+        "itemId": "item_alpha_02",
+        "role": "assistant",
+        "text": "A command needs approval.",
+        "completedAt": "2026-08-10T08:00:04Z"
+      }
+    ],
+    "approvals": []
+  }
+}

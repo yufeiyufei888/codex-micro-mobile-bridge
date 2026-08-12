@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 7,
+  "event": "approval.requested",
+  "data": {
+    "approval": {
+      "approvalId": "approval_command_001",
+      "threadId": "thr_alpha",
+      "turnId": "turn_alpha_01",
+      "epoch": "epoch_A1b2C3d4E5f6G7h8",
+      "seq": 7,
+      "approvalType": "command",
+      "title": "Run project tests",
+      "summary": "The task requests permission to run the project test command.",
+      "details": {
+        "type": "command",
+        "command": "npm test",
+        "cwd": "C:/workspace/demo",
+        "reason": "Verify the protocol implementation before handoff.",
+        "allowedDecisions": ["approve_once", "approve_session", "decline", "cancel"]
+      },
+      "requestedAt": "2026-08-10T08:00:05Z"
+    }
+  }
+}

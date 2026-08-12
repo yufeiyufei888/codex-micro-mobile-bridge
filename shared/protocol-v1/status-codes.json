@@ -1,0 +1,56 @@
+{
+  "protocolVersion": 1,
+  "taskStatuses": [
+    { "id": "unassigned", "terminal": false, "defaultAttention": false, "colorToken": "task.unassigned" },
+    { "id": "idle", "terminal": false, "defaultAttention": false, "colorToken": "task.idle" },
+    { "id": "running", "terminal": false, "defaultAttention": false, "colorToken": "task.running" },
+    { "id": "waiting_input", "terminal": false, "defaultAttention": true, "colorToken": "task.attention" },
+    { "id": "waiting_approval", "terminal": false, "defaultAttention": true, "colorToken": "task.attention" },
+    { "id": "completed", "terminal": true, "defaultAttention": false, "colorToken": "task.success" },
+    { "id": "error", "terminal": true, "defaultAttention": true, "colorToken": "task.error" },
+    { "id": "interrupted", "terminal": true, "defaultAttention": true, "colorToken": "task.error" },
+    { "id": "recovery_unknown", "terminal": false, "defaultAttention": true, "colorToken": "task.unknown" }
+  ],
+  "attentionSemantics": "The task attention boolean is orthogonal to status; completed plus attention=true represents unread completion.",
+  "connectionStatuses": [
+    "offline",
+    "connecting",
+    "online",
+    "degraded",
+    "recovery_unknown"
+  ],
+  "approvalTypes": [
+    "command",
+    "file_change",
+    "permission",
+    "user_input"
+  ],
+  "errorCodes": [
+    { "code": "INVALID_MESSAGE", "retryable": false, "meaning": "The message is not valid protocol-v1 JSON." },
+    { "code": "UNSUPPORTED_PROTOCOL", "retryable": false, "meaning": "No mutually supported protocol version exists." },
+    { "code": "AUTH_REQUIRED", "retryable": false, "meaning": "The /v1/mobile pairing or connection-signature challenge was not completed." },
+    { "code": "AUTH_FAILED", "retryable": false, "meaning": "The pairing code/nonce or P-256 challenge signature was rejected." },
+    { "code": "CERT_PIN_MISMATCH", "retryable": false, "meaning": "The presented TLS SPKI does not match the paired pin; re-pairing is required." },
+    { "code": "STALE_EPOCH", "retryable": false, "meaning": "The command targets an earlier companion/app-server generation; fetch a new snapshot." },
+    { "code": "SEQ_GAP", "retryable": true, "meaning": "One or more ordered server events are missing; request a full snapshot." },
+    { "code": "REPLAY_DETECTED", "retryable": false, "meaning": "A previously applied sequence or message was replayed outside the idempotency contract." },
+    { "code": "IDEMPOTENCY_CONFLICT", "retryable": false, "meaning": "The clientCommandId was already used for a different canonical operation body." },
+    { "code": "THREAD_NOT_FOUND", "retryable": false, "meaning": "The companion-owned thread no longer exists." },
+    { "code": "TURN_NOT_ACTIVE", "retryable": false, "meaning": "The requested turn is not the active turn for that thread." },
+    { "code": "STALE_TURN", "retryable": false, "meaning": "expectedTurnId does not match the currently active turn; the text was not sent." },
+    { "code": "MODEL_NOT_AVAILABLE", "retryable": false, "meaning": "The selected model is not in the latest modelCatalog." },
+    { "code": "REASONING_EFFORT_NOT_SUPPORTED", "retryable": false, "meaning": "The selected effort is not supported by the selected model." },
+    { "code": "ACTIVE_TURN_OVERRIDE_NOT_ALLOWED", "retryable": false, "meaning": "Model and effort overrides are not accepted while steering an active turn." },
+    { "code": "APPROVAL_NOT_PENDING", "retryable": false, "meaning": "The approval was resolved or cleared before this response arrived." },
+    { "code": "APPROVAL_STALE", "retryable": false, "meaning": "The approval was created in another epoch or sequence generation." },
+    { "code": "APPROVAL_BINDING_MISMATCH", "retryable": false, "meaning": "approvalId, threadId, turnId, epoch, or seq does not exactly match the pending approval." },
+    { "code": "DECISION_NOT_ALLOWED", "retryable": false, "meaning": "The selected decision was not offered by the pending request." },
+    { "code": "APP_SERVER_UNAVAILABLE", "retryable": true, "meaning": "The managed Codex app-server process is unavailable." },
+    { "code": "APP_SERVER_SCHEMA_MISMATCH", "retryable": false, "meaning": "The runtime Codex CLI does not match the generated schema pinned by this companion build." },
+    { "code": "APP_SERVER_CRASHED", "retryable": true, "meaning": "The managed app-server exited unexpectedly." },
+    { "code": "RECOVERY_UNKNOWN", "retryable": false, "meaning": "The previous terminal outcome cannot be proven after recovery." },
+    { "code": "OVERLOADED", "retryable": true, "meaning": "A bounded queue is full; retry with exponential backoff and jitter." },
+    { "code": "TIMEOUT", "retryable": true, "meaning": "The operation did not produce a result before its deadline." },
+    { "code": "INTERNAL", "retryable": false, "meaning": "An unexpected companion failure occurred." }
+  ]
+}

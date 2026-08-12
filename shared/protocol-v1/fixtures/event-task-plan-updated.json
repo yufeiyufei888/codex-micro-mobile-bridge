@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 6,
+  "event": "task.plan.updated",
+  "data": {
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01",
+    "steps": [
+      {
+        "stepId": "step_schema",
+        "text": "Define the canonical schema",
+        "status": "completed"
+      },
+      {
+        "stepId": "step_fixtures",
+        "text": "Validate shared fixtures",
+        "status": "in_progress"
+      }
+    ]
+  }
+}

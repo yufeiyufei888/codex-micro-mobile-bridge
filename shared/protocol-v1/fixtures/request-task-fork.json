@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "req_task_fork_001",
+  "op": "task.fork",
+  "params": {
+    "clientCommandId": "cmd_20260810_fork_0001",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01",
+    "slot": 2
+  }
+}

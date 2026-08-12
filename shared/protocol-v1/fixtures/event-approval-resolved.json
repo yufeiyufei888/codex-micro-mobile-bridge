@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 8,
+  "event": "approval.resolved",
+  "data": {
+    "approvalId": "approval_command_001",
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "seq": 7,
+    "resolution": "approved"
+  }
+}

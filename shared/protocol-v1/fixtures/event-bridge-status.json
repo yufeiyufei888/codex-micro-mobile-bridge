@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 2,
+  "event": "bridge.status",
+  "data": {
+    "status": "online",
+    "reason": null
+  }
+}

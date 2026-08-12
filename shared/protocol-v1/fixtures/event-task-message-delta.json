@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 4,
+  "event": "task.message.delta",
+  "data": {
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01",
+    "itemId": "item_alpha_02",
+    "messageId": "message_alpha_02",
+    "channel": "assistant",
+    "delta": "Checking the protocol fixtures."
+  }
+}

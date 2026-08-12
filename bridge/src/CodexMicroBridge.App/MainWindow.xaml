@@ -1,0 +1,161 @@
+<Window x:Class="CodexMicroBridge.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Codex Micro 桌面桥接" Icon="Assets/CodexMicroBridge.ico" Width="980" Height="720" MinWidth="820" MinHeight="620"
+        Background="{StaticResource WindowBrush}" WindowStartupLocation="CenterScreen">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="20" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="CODEX MICRO" FontSize="12" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" />
+                <TextBlock Text="Windows 桌面桥接" FontSize="30" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <TextBlock Text="把手机输入安全同步到当前 Codex 桌面对话" Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
+            </StackPanel>
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" CornerRadius="18" Padding="14,9" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse x:Name="ServerStatusDot" Width="10" Height="10" Fill="#F5A524" Margin="0,0,8,0" />
+                    <TextBlock x:Name="ServerStatusText" Text="正在启动…" FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}">
+            <TabItem Header="手机配对">
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="28">
+                        <StackPanel>
+                            <TextBlock Text="一次性配对" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="打开 60 秒配对窗口，然后在手机上输入此配对码。手机会先校验证书指纹，再发送配对信息。"
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,24" />
+                            <Border Width="184" Height="184" Background="White" CornerRadius="10" Padding="8" HorizontalAlignment="Left" Margin="0,0,0,18">
+                                <Image x:Name="PairingQrImage" Stretch="Uniform" SnapsToDevicePixels="True" />
+                            </Border>
+                            <TextBlock x:Name="PairingCodeText" Text="— — — — — —" FontFamily="Cascadia Mono" FontSize="38" FontWeight="Bold" />
+                            <TextBlock x:Name="PairingExpiryText" Text="配对窗口已关闭" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,22" />
+                            <Button Content="开放 60 秒配对窗口" Click="OpenPairing_Click" HorizontalAlignment="Left" />
+                            <TextBlock Text="TLS SPKI SHA-256 证书指纹" FontSize="12" Foreground="{StaticResource MutedBrush}" Margin="0,28,0,7" />
+                            <Border Background="{StaticResource RaisedBrush}" CornerRadius="8" Padding="12">
+                                <TextBlock x:Name="FingerprintText" Text="正在初始化…" FontFamily="Cascadia Mono" FontSize="12" TextWrapping="Wrap" />
+                            </Border>
+                            <Button Content="复制证书指纹" Click="CopyFingerprint_Click" HorizontalAlignment="Left" Margin="0,12,0,0" Background="#31405F" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="24">
+                        <StackPanel>
+                            <TextBlock Text="网络连接" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="同一 Wi-Fi" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" Margin="0,20,0,4" />
+                            <TextBlock x:Name="ConnectionUrlText" Text="wss://&lt;PC-LAN-IP&gt;:47127/v1/mobile" FontFamily="Cascadia Mono" TextWrapping="Wrap" />
+                            <TextBlock Text="手机请求会经过身份认证和命令去重；发送前再次校验 Codex 窗口、当前输入框和焦点。"
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,16,0,0" />
+                            <Border Background="#231E42" CornerRadius="10" Padding="14" Margin="0,24,0,0">
+                                <TextBlock Text="桌面同步模式：手机只控制电脑屏幕上当前打开的 Codex 对话。切换桌面对话后，手机下一次发送会跟随新的当前对话。"
+                                           TextWrapping="Wrap" Foreground="#CFC5FF" />
+                            </Border>
+                            <CheckBox x:Name="StartupCheckBox" Content="登录 Windows 后自动启动"
+                                      Click="StartupCheckBox_Click" Margin="0,24,0,0" Foreground="{StaticResource TextBrush}" />
+                            <TextBlock x:Name="FirewallStatusText" Text="正在检查专用网络防火墙状态…"
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,20,0,0" />
+                            <TextBlock Text="专用网络防火墙命令（请先检查，必要时以管理员身份手动运行）"
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,10,0,6" />
+                            <TextBox x:Name="FirewallCommandText" IsReadOnly="True" TextWrapping="Wrap" Background="{StaticResource RaisedBrush}"
+                                     Foreground="{StaticResource TextBrush}" BorderThickness="0" Padding="10" FontFamily="Cascadia Mono" />
+                            <Button Content="复制防火墙命令" Click="CopyFirewallCommand_Click" HorizontalAlignment="Left"
+                                    Margin="0,10,0,0" Background="#31405F" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+            <TabItem Header="旧版项目记录">
+                <Border Margin="0,18,0,0" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="24">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="旧版项目记录" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="桌面同步模式沿用当前桌面对话的工作区，不再通过手机选择或创建独立项目。这里仅保留旧版记录。"
+                                       Foreground="{StaticResource MutedBrush}" Margin="0,7,0,18" />
+                        </StackPanel>
+                        <ListBox x:Name="ProjectList" Grid.Row="1" Background="{StaticResource RaisedBrush}" Foreground="{StaticResource TextBrush}"
+                                 BorderThickness="0" FontFamily="Cascadia Mono" Padding="8" />
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,16,0,0">
+                            <Button Content="添加文件夹" Click="AddProject_Click" />
+                            <Button Content="移除所选项目" Click="RemoveProject_Click" Background="#31405F" Margin="10,0,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </TabItem>
+            <TabItem Header="已配对设备">
+                <Border Margin="0,18,0,0" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="24">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="已配对手机" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="撤销设备会删除其保存的公钥、使未完成的认证失效，并断开当前连接。"
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,18" />
+                        </StackPanel>
+                        <ListBox x:Name="PairedDeviceList" Grid.Row="1" Background="{StaticResource RaisedBrush}"
+                                 Foreground="{StaticResource TextBrush}" BorderThickness="0" Padding="8">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding DeviceId}" FontFamily="Cascadia Mono"
+                                                   Foreground="{StaticResource MutedBrush}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding LastSeenAt}" HorizontalAlignment="Right"
+                                                   Foreground="{StaticResource MutedBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Grid.Row="2" Content="撤销所选手机" Click="RevokeDevice_Click"
+                                HorizontalAlignment="Left" Margin="0,16,0,0" Background="#7A3048" />
+                    </Grid>
+                </Border>
+            </TabItem>
+            <TabItem Header="诊断">
+                <Border Margin="0,18,0,0" Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="20">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                            <TextBlock Text="诊断日志（敏感内容已脱敏）" Foreground="{StaticResource MutedBrush}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="发送手机审批测试" Click="TestApproval_Click" />
+                                <TextBlock Text="批准后启动记事本；拒绝不执行任何操作" Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBox x:Name="DiagnosticsBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                 Background="#090E1A" Foreground="#B9C7E8" BorderThickness="0" Padding="14"
+                                 FontFamily="Cascadia Mono" FontSize="12" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" />
+                    </DockPanel>
+                </Border>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex-micro-mobile.invalid/schemas/app-server-lock.json",
+  "title": "Pinned Codex app-server compatibility lock",
+  "type": "object",
+  "required": [
+    "cliVersion",
+    "schemaDirectorySha256",
+    "adapterRevision",
+    "generatedAt"
+  ],
+  "properties": {
+    "cliVersion": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "schemaDirectorySha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "adapterRevision": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "generatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,50 @@
+# Local toolchains and generated delivery outputs
+work/
+outputs/
+release-assets/
+%SystemDrive%/
+
+# Android local and generated files
+android/.gradle/
+android/.gradle-user-home/
+android/.kotlin/
+android/local.properties
+**/build/
+*.apk
+*.aab
+*.apks
+*.jks
+*.keystore
+keystore.properties
+
+# .NET generated files
+**/bin/
+**/obj/
+**/publish/
+*.nupkg
+*.pdb
+TestResults/
+
+# Local state, credentials, certificates, and logs
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.pfx
+*.p12
+*.key
+*.pem
+*.log
+bridge-data/
+google-services.json
+
+# IDE and operating-system files
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db

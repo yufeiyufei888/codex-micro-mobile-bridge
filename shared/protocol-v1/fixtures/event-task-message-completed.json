@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 5,
+  "event": "task.message.completed",
+  "data": {
+    "message": {
+      "messageId": "message_alpha_02",
+      "threadId": "thr_alpha",
+      "turnId": "turn_alpha_01",
+      "itemId": "item_alpha_02",
+      "role": "assistant",
+      "text": "Checking the protocol fixtures.",
+      "completedAt": "2026-08-10T08:00:04Z"
+    }
+  }
+}

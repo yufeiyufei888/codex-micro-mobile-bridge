@@ -1,0 +1,24 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 3,
+  "event": "task.state",
+  "data": {
+    "task": {
+      "threadId": "thr_alpha",
+      "projectId": "project_demo_01",
+      "title": "Protocol review",
+      "status": "running",
+      "activeTurnId": "turn_alpha_01",
+      "attention": false,
+      "progress": {
+        "kind": "indeterminate",
+        "label": "Reviewing files",
+        "source": "app_server_item"
+      },
+      "plan": [],
+      "lastMessagePreview": "Checking the protocol fixtures.",
+      "updatedAt": "2026-08-10T08:00:02Z"
+    }
+  }
+}

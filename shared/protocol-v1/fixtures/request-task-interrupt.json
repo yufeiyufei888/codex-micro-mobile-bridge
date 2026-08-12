@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "id": "req_task_interrupt_001",
+  "op": "task.interrupt",
+  "params": {
+    "clientCommandId": "cmd_20260810_interrupt_01",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01"
+  }
+}

@@ -1,0 +1,1068 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex-micro-mobile.invalid/schemas/protocol-v1.json",
+  "title": "Codex Micro Mobile Protocol v1",
+  "description": "Canonical business protocol between Android and the desktop companion. Pairing and WebSocket authentication frames are outside this schema.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/successResponse" },
+    { "$ref": "#/$defs/errorResponse" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "epoch": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "clientCommandId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "slot": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+    },
+    "taskStatus": {
+      "enum": [
+        "idle",
+        "running",
+        "waiting_input",
+        "waiting_approval",
+        "completed",
+        "error",
+        "interrupted",
+        "recovery_unknown"
+      ]
+    },
+    "bridgeStatus": {
+      "enum": ["offline", "connecting", "online", "degraded", "recovery_unknown"]
+    },
+    "reasoningEffort": {
+      "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
+    },
+    "modelCatalogItem": {
+      "type": "object",
+      "required": ["id", "displayName", "supportedReasoningEfforts", "default"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "supportedReasoningEfforts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reasoningEffort" }
+        },
+        "default": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "projectCatalogItem": {
+      "type": "object",
+      "required": ["projectId", "displayName"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/id" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "readOnly": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "slotAssignment": {
+      "type": "object",
+      "required": ["slot", "threadId"],
+      "properties": {
+        "slot": { "$ref": "#/$defs/slot" },
+        "threadId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "errorCode": {
+      "enum": [
+        "INVALID_MESSAGE",
+        "UNSUPPORTED_PROTOCOL",
+        "AUTH_REQUIRED",
+        "AUTH_FAILED",
+        "CERT_PIN_MISMATCH",
+        "STALE_EPOCH",
+        "SEQ_GAP",
+        "REPLAY_DETECTED",
+        "IDEMPOTENCY_CONFLICT",
+        "THREAD_NOT_FOUND",
+        "TURN_NOT_ACTIVE",
+        "STALE_TURN",
+        "MODEL_NOT_AVAILABLE",
+        "REASONING_EFFORT_NOT_SUPPORTED",
+        "ACTIVE_TURN_OVERRIDE_NOT_ALLOWED",
+        "APPROVAL_NOT_PENDING",
+        "APPROVAL_STALE",
+        "APPROVAL_BINDING_MISMATCH",
+        "DECISION_NOT_ALLOWED",
+        "APP_SERVER_UNAVAILABLE",
+        "APP_SERVER_SCHEMA_MISMATCH",
+        "APP_SERVER_CRASHED",
+        "RECOVERY_UNKNOWN",
+        "OVERLOADED",
+        "TIMEOUT",
+        "INTERNAL"
+      ]
+    },
+    "progress": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "const": "unknown" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "label", "source"],
+          "properties": {
+            "kind": { "const": "indeterminate" },
+            "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "source": { "enum": ["app_server_status", "app_server_item", "desktop_ui_status"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "completedSteps", "totalSteps"],
+          "properties": {
+            "kind": { "const": "plan_steps" },
+            "completedSteps": { "type": "integer", "minimum": 0 },
+            "totalSteps": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "task": {
+      "type": "object",
+      "required": [
+        "threadId",
+        "projectId",
+        "title",
+        "status",
+        "activeTurnId",
+        "attention",
+        "progress",
+        "plan",
+        "lastMessagePreview",
+        "updatedAt"
+      ],
+      "properties": {
+        "threadId": { "$ref": "#/$defs/id" },
+        "projectId": {
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "status": { "$ref": "#/$defs/taskStatus" },
+        "activeTurnId": {
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "attention": { "type": "boolean" },
+        "progress": { "$ref": "#/$defs/progress" },
+        "plan": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/planStep" }
+        },
+        "lastMessagePreview": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 500 },
+            { "type": "null" }
+          ]
+        },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "required": ["messageId", "threadId", "turnId", "itemId", "role", "text", "completedAt"],
+      "properties": {
+        "messageId": { "$ref": "#/$defs/id" },
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "itemId": { "$ref": "#/$defs/id" },
+        "role": { "enum": ["user", "assistant", "system", "tool"] },
+        "text": { "type": "string", "maxLength": 200000 },
+        "completedAt": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "planStep": {
+      "type": "object",
+      "required": ["stepId", "text", "status"],
+      "properties": {
+        "stepId": { "$ref": "#/$defs/id" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "status": { "enum": ["pending", "in_progress", "completed"] }
+      },
+      "additionalProperties": false
+    },
+    "approvalType": {
+      "enum": ["command", "file_change", "permission", "user_input"]
+    },
+    "normalizedApprovalDecision": {
+      "enum": ["approve_once", "approve_session", "decline", "cancel"]
+    },
+    "approvalBinding": {
+      "type": "object",
+      "required": ["approvalId", "threadId", "turnId", "epoch", "seq"],
+      "properties": {
+        "approvalId": { "$ref": "#/$defs/id" },
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "question": {
+      "type": "object",
+      "required": ["questionId", "prompt", "required", "options"],
+      "properties": {
+        "questionId": { "$ref": "#/$defs/id" },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "required": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "filesystemPermission": {
+      "type": "object",
+      "required": ["permissionId", "path", "access"],
+      "properties": {
+        "permissionId": { "$ref": "#/$defs/id" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "access": { "enum": ["read", "write"] }
+      },
+      "additionalProperties": false
+    },
+    "networkTarget": {
+      "type": "object",
+      "required": ["host", "protocol"],
+      "properties": {
+        "host": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "protocol": { "enum": ["tcp", "udp", "http", "https"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "additionalProperties": false
+    },
+    "commandApprovalDetails": {
+      "type": "object",
+      "required": ["type", "command", "cwd", "reason", "allowedDecisions"],
+      "properties": {
+        "type": { "const": "command" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "cwd": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "allowedDecisions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/normalizedApprovalDecision" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "fileChangeApprovalDetails": {
+      "type": "object",
+      "required": ["type", "itemId", "paths", "grantRoot", "allowedDecisions"],
+      "properties": {
+        "type": { "const": "file_change" },
+        "itemId": { "$ref": "#/$defs/id" },
+        "paths": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+            },
+            { "type": "null" }
+          ]
+        },
+        "grantRoot": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "allowedDecisions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/normalizedApprovalDecision" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "permissionApprovalDetails": {
+      "type": "object",
+      "required": ["type", "cwd", "requested", "allowedScopes"],
+      "properties": {
+        "type": { "const": "permission" },
+        "cwd": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "requested": {
+          "type": "object",
+          "required": ["filesystem", "network"],
+          "properties": {
+            "filesystem": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/filesystemPermission" }
+            },
+            "network": {
+              "type": "object",
+              "required": ["permissionId", "enabled", "targets"],
+              "properties": {
+                "permissionId": { "$ref": "#/$defs/id" },
+                "enabled": { "type": "boolean" },
+                "targets": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/networkTarget" }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "allowedScopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["once", "session"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "userInputApprovalDetails": {
+      "type": "object",
+      "required": ["type", "questions"],
+      "properties": {
+        "type": { "const": "user_input" },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/question" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "approvalResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "decision"],
+          "properties": {
+            "type": { "const": "command" },
+            "decision": { "$ref": "#/$defs/normalizedApprovalDecision" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "decision"],
+          "properties": {
+            "type": { "const": "file_change" },
+            "decision": { "$ref": "#/$defs/normalizedApprovalDecision" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "granted", "scope"],
+          "properties": {
+            "type": { "const": "permission" },
+            "granted": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/id" }
+            },
+            "scope": { "enum": ["once", "session"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "answers"],
+          "properties": {
+            "type": { "const": "user_input" },
+            "answers": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "$ref": "#/$defs/id" },
+              "additionalProperties": { "type": "string", "maxLength": 10000 }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "approvalId",
+        "threadId",
+        "turnId",
+        "epoch",
+        "seq",
+        "approvalType",
+        "title",
+        "summary",
+        "details",
+        "requestedAt"
+      ],
+      "properties": {
+        "approvalId": { "$ref": "#/$defs/id" },
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "approvalType": { "$ref": "#/$defs/approvalType" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "details": {
+          "oneOf": [
+            { "$ref": "#/$defs/commandApprovalDetails" },
+            { "$ref": "#/$defs/fileChangeApprovalDetails" },
+            { "$ref": "#/$defs/permissionApprovalDetails" },
+            { "$ref": "#/$defs/userInputApprovalDetails" }
+          ]
+        },
+        "requestedAt": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "approvalType": { "const": "command" } }, "required": ["approvalType"] },
+          "then": { "properties": { "details": { "$ref": "#/$defs/commandApprovalDetails" } } }
+        },
+        {
+          "if": { "properties": { "approvalType": { "const": "file_change" } }, "required": ["approvalType"] },
+          "then": { "properties": { "details": { "$ref": "#/$defs/fileChangeApprovalDetails" } } }
+        },
+        {
+          "if": { "properties": { "approvalType": { "const": "permission" } }, "required": ["approvalType"] },
+          "then": { "properties": { "details": { "$ref": "#/$defs/permissionApprovalDetails" } } }
+        },
+        {
+          "if": { "properties": { "approvalType": { "const": "user_input" } }, "required": ["approvalType"] },
+          "then": { "properties": { "details": { "$ref": "#/$defs/userInputApprovalDetails" } } }
+        }
+      ]
+    },
+
+    "tasksListRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "tasks.list" },
+        "params": { "type": "object", "maxProperties": 0 }
+      },
+      "additionalProperties": false
+    },
+    "taskCreateRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.create" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "projectId", "prompt"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "projectId": { "$ref": "#/$defs/id" },
+            "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+            "model": { "$ref": "#/$defs/id" },
+            "effort": { "$ref": "#/$defs/reasoningEffort" },
+            "slot": { "oneOf": [{ "$ref": "#/$defs/slot" }, { "type": "null" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskReadRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.read" },
+        "params": {
+          "type": "object",
+          "required": ["threadId"],
+          "properties": { "threadId": { "$ref": "#/$defs/id" } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskSendRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.send" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "threadId", "text"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "threadId": { "$ref": "#/$defs/id" },
+            "expectedTurnId": { "$ref": "#/$defs/id" },
+            "model": { "$ref": "#/$defs/id" },
+            "effort": { "$ref": "#/$defs/reasoningEffort" },
+            "text": { "type": "string", "minLength": 1, "maxLength": 100000 }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": { "required": ["expectedTurnId"] },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    { "required": ["model"] },
+                    { "required": ["effort"] }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskInterruptRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.interrupt" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "threadId", "turnId"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "threadId": { "$ref": "#/$defs/id" },
+            "turnId": { "$ref": "#/$defs/id" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskForkRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.fork" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "threadId"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "threadId": { "$ref": "#/$defs/id" },
+            "turnId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+            "slot": { "oneOf": [{ "$ref": "#/$defs/slot" }, { "type": "null" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskReadAckRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "task.read_ack" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "threadId", "throughMessageId"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "threadId": { "$ref": "#/$defs/id" },
+            "throughMessageId": { "$ref": "#/$defs/id" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "approvalRespondRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "approval.respond" },
+        "params": {
+          "type": "object",
+          "required": [
+            "clientCommandId",
+            "approvalId",
+            "threadId",
+            "turnId",
+            "epoch",
+            "seq",
+            "response"
+          ],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "approvalId": { "$ref": "#/$defs/id" },
+            "threadId": { "$ref": "#/$defs/id" },
+            "turnId": { "$ref": "#/$defs/id" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "seq": { "type": "integer", "minimum": 1 },
+            "response": { "$ref": "#/$defs/approvalResponse" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "slotAssignRequest": {
+      "type": "object",
+      "required": ["v", "id", "op", "params"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "op": { "const": "slot.assign" },
+        "params": {
+          "type": "object",
+          "required": ["clientCommandId", "epoch", "slot", "threadId"],
+          "properties": {
+            "clientCommandId": { "$ref": "#/$defs/clientCommandId" },
+            "epoch": { "$ref": "#/$defs/epoch" },
+            "slot": { "$ref": "#/$defs/slot" },
+            "threadId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "oneOf": [
+        { "$ref": "#/$defs/tasksListRequest" },
+        { "$ref": "#/$defs/taskCreateRequest" },
+        { "$ref": "#/$defs/taskReadRequest" },
+        { "$ref": "#/$defs/taskSendRequest" },
+        { "$ref": "#/$defs/taskInterruptRequest" },
+        { "$ref": "#/$defs/taskForkRequest" },
+        { "$ref": "#/$defs/taskReadAckRequest" },
+        { "$ref": "#/$defs/approvalRespondRequest" },
+        { "$ref": "#/$defs/slotAssignRequest" }
+      ]
+    },
+
+    "tasksListResult": {
+      "type": "object",
+      "required": ["epoch", "seq", "slots", "tasks", "projectCatalog", "modelCatalog"],
+      "properties": {
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "slots": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/slotAssignment" }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/task" }
+        },
+        "projectCatalog": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/projectCatalogItem" }
+        },
+        "modelCatalog": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modelCatalogItem" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskReadResult": {
+      "type": "object",
+      "required": ["epoch", "seq", "task", "messages", "approvals"],
+      "properties": {
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "task": { "$ref": "#/$defs/task" },
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/message" }
+        },
+        "approvals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/approval" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskResult": {
+      "type": "object",
+      "required": ["task"],
+      "properties": { "task": { "$ref": "#/$defs/task" } },
+      "additionalProperties": false
+    },
+    "turnAcceptedResult": {
+      "type": "object",
+      "required": ["accepted", "threadId", "turnId"],
+      "properties": {
+        "accepted": { "const": true },
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "readAckResult": {
+      "type": "object",
+      "required": ["accepted", "threadId", "throughMessageId"],
+      "properties": {
+        "accepted": { "const": true },
+        "threadId": { "$ref": "#/$defs/id" },
+        "throughMessageId": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "approvalRespondResult": {
+      "type": "object",
+      "required": ["accepted", "approvalId"],
+      "properties": {
+        "accepted": { "const": true },
+        "approvalId": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "slotAssignResult": {
+      "type": "object",
+      "required": ["accepted", "slot", "threadId"],
+      "properties": {
+        "accepted": { "const": true },
+        "slot": { "$ref": "#/$defs/slot" },
+        "threadId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "successResponse": {
+      "type": "object",
+      "required": ["v", "id", "result"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/tasksListResult" },
+            { "$ref": "#/$defs/taskReadResult" },
+            { "$ref": "#/$defs/taskResult" },
+            { "$ref": "#/$defs/turnAcceptedResult" },
+            { "$ref": "#/$defs/readAckResult" },
+            { "$ref": "#/$defs/approvalRespondResult" },
+            { "$ref": "#/$defs/slotAssignResult" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": ["v", "id", "error"],
+      "properties": {
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "retryable"],
+          "properties": {
+            "code": { "$ref": "#/$defs/errorCode" },
+            "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "retryable": { "type": "boolean" },
+            "details": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "snapshotData": {
+      "type": "object",
+      "required": ["bridge", "slots", "tasks", "approvals", "projectCatalog", "modelCatalog"],
+      "properties": {
+        "bridge": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "$ref": "#/$defs/bridgeStatus" },
+            "reason": { "type": ["string", "null"], "maxLength": 500 }
+          },
+          "additionalProperties": false
+        },
+        "slots": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/slotAssignment" }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/task" }
+        },
+        "approvals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/approval" }
+        },
+        "projectCatalog": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/projectCatalogItem" }
+        },
+        "modelCatalog": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modelCatalogItem" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "bridgeStatusData": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "properties": {
+        "status": { "$ref": "#/$defs/bridgeStatus" },
+        "reason": { "type": ["string", "null"], "maxLength": 500 }
+      },
+      "additionalProperties": false
+    },
+    "taskStateData": {
+      "type": "object",
+      "required": ["task"],
+      "properties": { "task": { "$ref": "#/$defs/task" } },
+      "additionalProperties": false
+    },
+    "taskMessageDeltaData": {
+      "type": "object",
+      "required": ["threadId", "turnId", "itemId", "messageId", "channel", "delta"],
+      "properties": {
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "itemId": { "$ref": "#/$defs/id" },
+        "messageId": { "$ref": "#/$defs/id" },
+        "channel": { "enum": ["assistant", "reasoning", "tool"] },
+        "delta": { "type": "string", "minLength": 1, "maxLength": 20000 }
+      },
+      "additionalProperties": false
+    },
+    "taskMessageCompletedData": {
+      "type": "object",
+      "required": ["message"],
+      "properties": { "message": { "$ref": "#/$defs/message" } },
+      "additionalProperties": false
+    },
+    "taskPlanUpdatedData": {
+      "type": "object",
+      "required": ["threadId", "turnId", "steps"],
+      "properties": {
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/planStep" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "approvalRequestedData": {
+      "type": "object",
+      "required": ["approval"],
+      "properties": { "approval": { "$ref": "#/$defs/approval" } },
+      "additionalProperties": false
+    },
+    "approvalResolvedData": {
+      "type": "object",
+      "required": ["approvalId", "threadId", "turnId", "epoch", "seq", "resolution"],
+      "properties": {
+        "approvalId": { "$ref": "#/$defs/id" },
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "resolution": { "enum": ["approved", "declined", "cancelled", "submitted", "expired", "resolved_elsewhere"] }
+      },
+      "additionalProperties": false
+    },
+    "taskErrorData": {
+      "type": "object",
+      "required": ["threadId", "turnId", "code", "message", "recoverable"],
+      "properties": {
+        "threadId": { "$ref": "#/$defs/id" },
+        "turnId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "code": { "$ref": "#/$defs/errorCode" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "recoverable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "snapshotEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "snapshot" },
+        "data": { "$ref": "#/$defs/snapshotData" }
+      },
+      "additionalProperties": false
+    },
+    "bridgeStatusEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "bridge.status" },
+        "data": { "$ref": "#/$defs/bridgeStatusData" }
+      },
+      "additionalProperties": false
+    },
+    "taskStateEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "task.state" },
+        "data": { "$ref": "#/$defs/taskStateData" }
+      },
+      "additionalProperties": false
+    },
+    "taskMessageDeltaEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "task.message.delta" },
+        "data": { "$ref": "#/$defs/taskMessageDeltaData" }
+      },
+      "additionalProperties": false
+    },
+    "taskMessageCompletedEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "task.message.completed" },
+        "data": { "$ref": "#/$defs/taskMessageCompletedData" }
+      },
+      "additionalProperties": false
+    },
+    "taskPlanUpdatedEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "task.plan.updated" },
+        "data": { "$ref": "#/$defs/taskPlanUpdatedData" }
+      },
+      "additionalProperties": false
+    },
+    "approvalRequestedEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "approval.requested" },
+        "data": { "$ref": "#/$defs/approvalRequestedData" }
+      },
+      "additionalProperties": false
+    },
+    "approvalResolvedEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "approval.resolved" },
+        "data": { "$ref": "#/$defs/approvalResolvedData" }
+      },
+      "additionalProperties": false
+    },
+    "taskErrorEvent": {
+      "type": "object",
+      "required": ["v", "epoch", "seq", "event", "data"],
+      "properties": {
+        "v": { "const": 1 },
+        "epoch": { "$ref": "#/$defs/epoch" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "event": { "const": "task.error" },
+        "data": { "$ref": "#/$defs/taskErrorData" }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "oneOf": [
+        { "$ref": "#/$defs/snapshotEvent" },
+        { "$ref": "#/$defs/bridgeStatusEvent" },
+        { "$ref": "#/$defs/taskStateEvent" },
+        { "$ref": "#/$defs/taskMessageDeltaEvent" },
+        { "$ref": "#/$defs/taskMessageCompletedEvent" },
+        { "$ref": "#/$defs/taskPlanUpdatedEvent" },
+        { "$ref": "#/$defs/approvalRequestedEvent" },
+        { "$ref": "#/$defs/approvalResolvedEvent" },
+        { "$ref": "#/$defs/taskErrorEvent" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "id": "req_task_read_001",
+  "op": "task.read",
+  "params": {
+    "threadId": "thr_alpha"
+  }
+}

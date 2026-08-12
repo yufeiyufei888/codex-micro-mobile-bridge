@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "product": "Codex Micro Mobile",
+  "cliVersion": "0.147.0-alpha.6.5",
+  "generator": "codex app-server generate-json-schema",
+  "bundle": "codex-0.147.0-alpha.6.5",
+  "generatedOn": "2026-08-10",
+  "generatedFileCount": 285,
+  "directoryDigestAlgorithm": "sha256(relative-path LF lowercase-file-sha256 LF)",
+  "schemaDirectorySha256": "6379863bd6e5d3a9ac03000b9c70750d349ea471860d2643099f23f777e38d0e",
+  "manualEditsAllowed": false,
+  "upgradeRequiresCompatibilityRegression": true
+}

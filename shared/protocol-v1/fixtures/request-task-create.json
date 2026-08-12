@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "id": "req_task_create_001",
+  "op": "task.create",
+  "params": {
+    "clientCommandId": "cmd_20260810_create_001",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "projectId": "project_demo_01",
+    "title": "Inspect the project",
+    "prompt": "Inspect the project and summarize the next safe step.",
+    "model": "gpt-5.1-codex",
+    "effort": "medium",
+    "slot": 1
+  }
+}

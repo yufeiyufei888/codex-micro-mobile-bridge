@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Codex Micro</string>
+    <string name="notification_channel_connection">连接状态</string>
+    <string name="notification_channel_approval">任务审批</string>
+    <string name="notification_connection_title">Codex Micro 已连接</string>
+    <string name="notification_connection_stop">停止连接</string>
+    <string name="notification_approval_title">任务等待你的批准</string>
+    <string name="notification_approval_approve">批准</string>
+    <string name="notification_approval_reject">拒绝</string>
+</resources>

@@ -1,0 +1,99 @@
+{
+  "protocolVersion": 1,
+  "schema": "../schema.json",
+  "cases": [
+    { "file": "request-tasks-list.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-task-create.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-task-read.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    {
+      "file": "request-task-send.json",
+      "schemaValid": true,
+      "semanticOutcome": "ACCEPT",
+      "context": { "activeTurnId": "turn_alpha_01" }
+    },
+    { "file": "request-task-send-idle.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-task-interrupt.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-task-fork.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-task-read-ack.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-approval-respond.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "request-approval-respond-file-change.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    {
+      "file": "request-approval-respond-permission.json",
+      "schemaValid": true,
+      "semanticOutcome": "ACCEPT",
+      "context": { "requestedPermissionIds": ["perm_fs_src", "perm_network"] }
+    },
+    { "file": "request-approval-respond-user-input.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    {
+      "file": "request-slot-assign.json",
+      "schemaValid": true,
+      "semanticOutcome": "ACCEPT",
+      "context": { "managedThreadIds": ["thr_alpha"] }
+    },
+    { "file": "request-slot-clear.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-tasks-list.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-task-read.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-task-create.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-turn-accepted.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-read-ack.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-approval-respond.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-slot-assign.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "response-error.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-snapshot.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-bridge-status.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-task-state.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-task-message-delta.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-task-message-completed.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-task-plan-updated.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-approval-requested.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-approval-requested-file-change.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-approval-requested-permission.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-approval-requested-user-input.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-approval-resolved.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    { "file": "event-task-error.json", "schemaValid": true, "semanticOutcome": "ACCEPT" },
+    {
+      "file": "semantic-stale-approval.json",
+      "schemaValid": true,
+      "semanticOutcome": "STALE_EPOCH",
+      "context": { "currentEpoch": "epoch_A1b2C3d4E5f6G7h8" }
+    },
+    {
+      "file": "semantic-binding-mismatch.json",
+      "schemaValid": true,
+      "semanticOutcome": "APPROVAL_BINDING_MISMATCH",
+      "context": {
+        "currentEpoch": "epoch_A1b2C3d4E5f6G7h8",
+        "pendingBinding": {
+          "approvalId": "approval_command_001",
+          "threadId": "thr_alpha",
+          "turnId": "turn_alpha_01",
+          "epoch": "epoch_A1b2C3d4E5f6G7h8",
+          "seq": 7
+        }
+      }
+    },
+    {
+      "file": "semantic-seq-gap.json",
+      "schemaValid": true,
+      "semanticOutcome": "SEQ_GAP",
+      "context": {
+        "currentEpoch": "epoch_A1b2C3d4E5f6G7h8",
+        "lastServerSeq": 10
+      }
+    },
+    {
+      "file": "semantic-stale-turn.json",
+      "schemaValid": true,
+      "semanticOutcome": "STALE_TURN",
+      "context": {
+        "activeTurnId": "turn_alpha_02"
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "files": ["semantic-idempotency-a.json", "semantic-idempotency-b.json"],
+      "semanticOutcome": "IDEMPOTENCY_CONFLICT"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "id": "req_slot_assign_001",
+  "op": "slot.assign",
+  "params": {
+    "clientCommandId": "cmd_20260810_slot_0001",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "slot": 3,
+    "threadId": "thr_alpha"
+  }
+}

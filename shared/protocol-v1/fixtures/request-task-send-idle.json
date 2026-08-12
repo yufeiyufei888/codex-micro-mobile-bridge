@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "id": "req_task_send_idle_001",
+  "op": "task.send",
+  "params": {
+    "clientCommandId": "cmd_20260810_send_idle_01",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "threadId": "thr_idle",
+    "text": "Start a new turn with the selected model settings.",
+    "model": "gpt-5.1-codex",
+    "effort": "high"
+  }
+}

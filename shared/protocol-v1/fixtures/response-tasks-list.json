@@ -1,0 +1,60 @@
+{
+  "v": 1,
+  "id": "req_tasks_list_001",
+  "result": {
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "seq": 2,
+    "slots": [
+      { "slot": 1, "threadId": "thr_alpha" },
+      { "slot": 2, "threadId": null },
+      { "slot": 3, "threadId": null },
+      { "slot": 4, "threadId": null },
+      { "slot": 5, "threadId": null },
+      { "slot": 6, "threadId": null }
+    ],
+    "tasks": [
+      {
+        "threadId": "thr_alpha",
+        "projectId": "project_demo_01",
+        "title": "Protocol review",
+        "status": "running",
+        "activeTurnId": "turn_alpha_01",
+        "attention": false,
+        "progress": {
+          "kind": "plan_steps",
+          "completedSteps": 1,
+          "totalSteps": 2
+        },
+        "plan": [
+          {
+            "stepId": "step_schema",
+            "text": "Define the canonical schema",
+            "status": "completed"
+          },
+          {
+            "stepId": "step_fixtures",
+            "text": "Validate shared fixtures",
+            "status": "in_progress"
+          }
+        ],
+        "lastMessagePreview": "Checking the protocol fixtures.",
+        "updatedAt": "2026-08-10T08:00:01Z"
+      }
+    ],
+    "projectCatalog": [
+      {
+        "projectId": "project_demo_01",
+        "displayName": "Demo project",
+        "path": "C:/workspace/demo"
+      }
+    ],
+    "modelCatalog": [
+      {
+        "id": "gpt-5.1-codex",
+        "displayName": "GPT-5.1 Codex",
+        "supportedReasoningEfforts": ["low", "medium", "high"],
+        "default": true
+      }
+    ]
+  }
+}

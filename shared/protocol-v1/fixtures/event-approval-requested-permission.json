@@ -1,0 +1,38 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 11,
+  "event": "approval.requested",
+  "data": {
+    "approval": {
+      "approvalId": "approval_permission_001",
+      "threadId": "thr_alpha",
+      "turnId": "turn_alpha_01",
+      "epoch": "epoch_A1b2C3d4E5f6G7h8",
+      "seq": 11,
+      "approvalType": "permission",
+      "title": "Grant task permissions",
+      "summary": "The task requests filesystem and network access.",
+      "details": {
+        "type": "permission",
+        "cwd": "C:/workspace/demo",
+        "requested": {
+          "filesystem": [
+            {
+              "permissionId": "perm_fs_src",
+              "path": "C:/workspace/demo/src",
+              "access": "write"
+            }
+          ],
+          "network": {
+            "permissionId": "perm_network",
+            "enabled": true,
+            "targets": []
+          }
+        },
+        "allowedScopes": ["once", "session"]
+      },
+      "requestedAt": "2026-08-10T08:00:11Z"
+    }
+  }
+}

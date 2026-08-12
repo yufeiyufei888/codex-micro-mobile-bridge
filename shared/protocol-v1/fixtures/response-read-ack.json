@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "req_task_read_ack_001",
+  "result": {
+    "accepted": true,
+    "threadId": "thr_alpha",
+    "throughMessageId": "message_alpha_03"
+  }
+}

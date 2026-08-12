@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "epoch": "epoch_A1b2C3d4E5f6G7h8",
+  "seq": 9,
+  "event": "task.error",
+  "data": {
+    "threadId": "thr_beta",
+    "turnId": "turn_beta_03",
+    "code": "RECOVERY_UNKNOWN",
+    "message": "The previous terminal outcome could not be proven after recovery.",
+    "recoverable": false
+  }
+}

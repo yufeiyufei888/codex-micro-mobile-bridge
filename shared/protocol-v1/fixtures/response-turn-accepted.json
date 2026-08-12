@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "req_task_send_001",
+  "result": {
+    "accepted": true,
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_02"
+  }
+}

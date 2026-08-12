@@ -1,0 +1,37 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35913.81
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroBridge.Core", "src\CodexMicroBridge.Core\CodexMicroBridge.Core.csproj", "{F7A91D23-4E48-4A8B-93A4-4EBAEE5D1C71}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroBridge.App", "src\CodexMicroBridge.App\CodexMicroBridge.App.csproj", "{A09EE62C-4E72-48C4-B784-3A04E99A13DE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroBridge.MockAppServer", "src\CodexMicroBridge.MockAppServer\CodexMicroBridge.MockAppServer.csproj", "{BA2ACF60-431D-43DD-80F0-EB536A5660A5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroBridge.Tests", "tests\CodexMicroBridge.Tests\CodexMicroBridge.Tests.csproj", "{D6F65C4B-AC90-42E9-A568-CBE75F89640A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F7A91D23-4E48-4A8B-93A4-4EBAEE5D1C71}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F7A91D23-4E48-4A8B-93A4-4EBAEE5D1C71}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F7A91D23-4E48-4A8B-93A4-4EBAEE5D1C71}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F7A91D23-4E48-4A8B-93A4-4EBAEE5D1C71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A09EE62C-4E72-48C4-B784-3A04E99A13DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A09EE62C-4E72-48C4-B784-3A04E99A13DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A09EE62C-4E72-48C4-B784-3A04E99A13DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A09EE62C-4E72-48C4-B784-3A04E99A13DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BA2ACF60-431D-43DD-80F0-EB536A5660A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA2ACF60-431D-43DD-80F0-EB536A5660A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA2ACF60-431D-43DD-80F0-EB536A5660A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA2ACF60-431D-43DD-80F0-EB536A5660A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6F65C4B-AC90-42E9-A568-CBE75F89640A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6F65C4B-AC90-42E9-A568-CBE75F89640A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6F65C4B-AC90-42E9-A568-CBE75F89640A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6F65C4B-AC90-42E9-A568-CBE75F89640A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

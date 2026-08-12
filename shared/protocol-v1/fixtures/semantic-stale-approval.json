@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "id": "req_stale_approval_001",
+  "op": "approval.respond",
+  "params": {
+    "clientCommandId": "cmd_20260810_stale_0001",
+    "approvalId": "approval_command_001",
+    "threadId": "thr_alpha",
+    "turnId": "turn_alpha_01",
+    "epoch": "epoch_OLD9z8Y7x6W5v4U3",
+    "seq": 7,
+    "response": {
+      "type": "command",
+      "decision": "approve_once"
+    }
+  }
+}

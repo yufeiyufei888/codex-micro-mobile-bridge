@@ -1,0 +1,3 @@
+-keepattributes Signature,*Annotation*
+-keep class com.codexmicro.mobile.data.remote.** { *; }
+-dontwarn io.ktor.**

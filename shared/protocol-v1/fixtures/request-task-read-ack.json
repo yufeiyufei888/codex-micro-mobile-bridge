@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "id": "req_task_read_ack_001",
+  "op": "task.read_ack",
+  "params": {
+    "clientCommandId": "cmd_20260810_read_ack_01",
+    "epoch": "epoch_A1b2C3d4E5f6G7h8",
+    "threadId": "thr_alpha",
+    "throughMessageId": "message_alpha_03"
+  }
+}
