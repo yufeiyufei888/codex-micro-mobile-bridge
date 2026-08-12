@@ -1,0 +1,2 @@
+1c351afd7437a342b9c821aca439f6d80c1d800b29b8a8f49f406afc7fa18964  CodexMicroMobile-v1.0.0.apk
+f8a9b54310bc95e34b1ad01d23fd36852a47b0e140c94ea22ba3f024bf8a3305  CodexMicroBridge-v1.0.0-zhCN-win-x64-desktop-sync.zip
