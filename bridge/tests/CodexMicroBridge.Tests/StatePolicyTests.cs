@@ -44,6 +44,24 @@ public sealed class StatePolicyTests
     }
 
     [Fact]
+    public void ResolvedApprovalLeavesAttentionStateImmediately()
+    {
+        var state = new BridgeStateStore();
+        state.Register("thread-one", "Test task");
+        state.MarkNeedsInput("thread-one", "turn-one", isUserInput: false);
+
+        state.ApplyNotification("serverRequest/resolved", Element(new
+        {
+            threadId = "thread-one",
+            turnId = "turn-one",
+        }));
+
+        var snapshot = Assert.IsType<BridgeTaskSnapshot>(state.Get("thread-one"));
+        Assert.Equal(BridgeTaskState.Running, snapshot.State);
+        Assert.NotEqual(BridgeTaskState.NeedsApproval, snapshot.State);
+    }
+
+    [Fact]
     public void StateReducer_PreservesInterrupted_AndComputesPlanProgressInputs()
     {
         var state = new BridgeStateStore();

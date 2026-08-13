@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.codexmicro.mobile.domain.TaskItem
 import com.codexmicro.mobile.domain.TaskStatus
 import com.codexmicro.mobile.domain.TransportKind
@@ -17,12 +18,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
-class TaskDetailScreenRobolectricTest {
+@RunWith(AndroidJUnit4::class)
+class TaskDetailScreenTest {
     @get:Rule
     val compose = createComposeRule()
 

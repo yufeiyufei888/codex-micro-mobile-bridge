@@ -1,5 +1,7 @@
 package com.codexmicro.mobile.data
 
+import com.codexmicro.mobile.domain.ConnectionStatus
+import com.codexmicro.mobile.network.WireBridgeStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,5 +39,16 @@ class ConnectionRecoveryPolicyTest {
         assertTrue(isCanonicalProgressSource("desktop_ui_status"))
         assertTrue(isCanonicalProgressSource("app_server_status"))
         assertFalse(isCanonicalProgressSource("desktop-ui-status"))
+    }
+
+    @Test
+    fun authoritativeDesktopDegradedStateSurvivesTransientRefresh() {
+        val restored = restoreAuthoritativeBridgeStatus(
+            WireBridgeStatus("degraded", "桌面输入框暂不可用"),
+            "测试电脑",
+        )
+
+        assertTrue(restored is ConnectionStatus.Degraded)
+        assertEquals("桌面输入框暂不可用", (restored as ConnectionStatus.Degraded).reason)
     }
 }

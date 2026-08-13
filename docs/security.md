@@ -1,69 +1,146 @@
-# Codex Micro v1.0.1 安全设计
+# Security model
 
-## 保护对象与威胁模型
+## Assets and threats
 
-保护对象包括对话文本、回复、审批详情、局域网控制权、配对状态、设备密钥和 Windows 本地会话数据。设计假设局域网中可能存在旁观、伪装、重放和过期点击，也考虑手机丢失或应用数据被清除。
+Protected assets include task text, local paths, commands, file changes,
+approval/input responses, pairing keys, and control of the managed Codex
+process. The design assumes a hostile/shared LAN, replay attempts, stale taps,
+and a lost phone. It does not claim protection after the paired Windows account
+or unlocked Android device itself is compromised.
 
-本设计不声称能抵御已解锁 Android 设备或已登录 Windows 用户账户本身被完全控制后的攻击。手机和电脑应连接可信私有网络。
+## TLS identity, pairing, and connection authentication
 
-## TLS 身份、配对与连接认证
+V1 has no plaintext LAN mode. Device authentication uses P-256 signatures.
 
-1. Bridge 首次运行创建本地 TLS ECDSA P-256 身份，敏感私钥材料以 Windows DPAPI CurrentUser 保护。
-2. 用户打开 60 秒配对窗口，Bridge 生成随机 nonce 和独立六位一次性配对码。
-3. 二维码包含 WSS 地址、固定 `/v1/mobile` 路径、服务器 ID、过期时间、nonce、配对码和 SHA-256 SPKI 指纹，不包含 OpenAI 凭据。
-4. Android 在 Keystore 中生成不可导出的 P-256 签名密钥，先核验地址、证书有效期、主机 SAN 和 SPKI，再提交签名证明。
-5. Bridge 原子消费配对会话，只保存设备公钥和最小设备元数据。
-6. 每次后续连接都使用新的随机挑战；Android 必须用已注册私钥签名后才能交换业务消息。
+1. On first run the companion creates an ECDSA P-256 TLS keypair and random
+   `serverId`. Its private key is protected with Windows DPAPI `CurrentUser`;
+   plaintext private-key files are not retained.
+2. "Pair phone" creates a cryptographically random QR nonce and an independent
+   six-digit one-time code. Both expire after 60 seconds and are single-use.
+   The QR contains the private WSS address ending in `/v1/mobile`, `serverId`,
+   protocol version, QR nonce, the six-digit pairing code, and the certificate's
+   SHA-256 SPKI pin. The same code may also be entered manually.
+3. Android generates a non-exportable P-256 signing key in Android Keystore,
+   opens the same `/v1/mobile` WSS, and verifies the leaf certificate's exact
+   SHA-256 SPKI pin before sending pairing data. Public-CA validation does not
+   replace pinning for this local identity.
+4. Inside that WSS, the companion sends a fresh random challenge as a transport
+   extension frame. Android returns the QR nonce, six-digit code, device public
+   key, and a signature covering the challenge and pairing context. The
+   companion verifies the unexpired nonce/code and signature, consumes the
+   pairing session atomically, and stores only the device public key and minimal
+   device metadata.
+5. On every later `/v1/mobile` connection the companion sends a fresh auth
+   challenge. Android signs it with its Keystore private key; the companion
+   verifies the stored public key before accepting any business frame. After
+   authentication, the first business frame is the canonical `snapshot` event.
 
-SPKI 不匹配是硬失败，没有忽略或继续按钮。证书轮换、桌面重装、手机清除数据或密钥失效都需要重新配对。mDNS 仅用于发现，不建立信任，不能覆盖二维码确定的 SPKI。
+Pair/auth challenge frames are transport extensions and are not accepted by
+`shared/protocol-v1/schema.json`. Challenges are unpredictable and never
+reused. Because a six-digit code has low entropy, source/nonce/device rate
+limiting is a production release gate; a build that has not implemented it must
+say so in diagnostics and release notes. TLS 1.2 or later is mandatory, TLS 1.3
+is preferred, and TLS 0-RTT is disabled.
 
-## 网络暴露
+A pin mismatch is a hard `CERT_PIN_MISMATCH`; there is no "continue anyway."
+Certificate rotation, desktop reinstall, or lost key material requires an
+explicit new pairing from the desktop UI.
 
-- 业务端点只有局域网 WSS `/v1/mobile`。
-- Bridge 选择 RFC1918 Wi-Fi/以太网地址，不把本地 Codex 会话或调试接口直接暴露到 LAN。
-- Bridge 不自动提权，也不自动修改 Windows Firewall；用户需要保证所选端口只在可信专用网络可达。
-- 手机和 Bridge 对完整文本 envelope 设置大小限制，异常或未认证连接不能执行业务操作。
+## Private-network exposure
 
-## 本地凭据与数据
+The following are production hardening targets and must be verified by runtime
+diagnostics/tests; they are not implied to exist merely because this document
+specifies them:
+
+- show every actual bind address and refuse release configuration that exposes
+  the listener on an unintended public/VPN-exit interface;
+- limit any user-created Windows Firewall rule to the executable, chosen port,
+  and Private profile; the current implementation must not be described as
+  creating or auditing that rule unless it actually does;
+- keep `/v1/mobile` WSS as the only mobile application endpoint and never
+  forward app-server stdio or loopback diagnostics to the LAN.
+
+mDNS is discovery, not trust. Its TXT record may advertise `serverId`, port,
+protocol version, and the SHA-256 SPKI pin. The advertised pin is public and the
+TXT record is unauthenticated, so Android must not replace the QR-established
+pin with an mDNS value. Pairing codes, nonces, challenges, signatures, and key
+material are not advertised.
+
+## Credential storage
 
 ### Android
 
-- P-256 私钥不可导出，仅用于签名。
-- SPKI、主机信息和设置保存在应用私有 DataStore；历史保存在 Room 数据库。
-- 手机不保存 OpenAI/Codex Token。
-- 清除应用数据或卸载会删除配对和历史，需要重新配对。
+- Generate the P-256 device signing key as non-exportable Android Keystore key
+  material and allow it only for signing.
+- Store the SHA-256 SPKI pin and paired-host metadata in app-private DataStore.
+  These values identify the paired endpoint but are not authentication secrets;
+  no desktop/ChatGPT credential is stored on the phone.
+- V1 does not require user authentication for every key use because the
+  explicitly enabled background-monitoring mode must be able to reconnect while
+  the screen is locked. A future biometric/unlock policy must be user-selected
+  and must clearly disable that background behavior.
+- Clearing app data or invalidating the key removes local authority and
+  requires pairing again.
 
-### Windows
+### Windows companion
 
-- TLS 私钥、配对状态和敏感持久化字段受 DPAPI CurrentUser 保护。
-- Bridge 只保存手机公钥，不接收手机私钥。
-- Codex 会话读取只在本机进行；向手机发送的是当前会话所需的状态和正文，不发送认证凭据。
-- 本地数据库、证书、日志和诊断内容不得提交到 Git 或打入 Release。
+- Protect the TLS private key and encrypted recovery-state key with DPAPI
+  `CurrentUser`.
+- Store only Android public keys for connection authentication; the desktop
+  never receives or reconstructs a phone private key.
+- Apply an ACL granting only the installing user and SYSTEM access to companion
+  state. Do not place long-lived credentials in command lines, environment
+  variables, or machine-wide plaintext storage.
 
-## 重放与重复执行
+## Authorization and replay protection
 
-每个写操作携带当前 epoch 和稳定 `clientCommandId`。Bridge 保存规范化请求哈希和结果：
+- Pairing/revocation is per device; possession of one registered private key
+  grants only the V1 operations exposed by the companion.
+- Every write requires current `epoch` plus stable `clientCommandId`. Request
+  `id` is only response correlation.
+- The companion retains canonical operation hashes/results for at least 24
+  hours and the newest 4096 IDs per device. Same ID/body returns the recorded
+  result; same ID/different body fails with `IDEMPOTENCY_CONFLICT`.
+- Only events consume sequence numbers. A gap forces reconnect and a new
+  first-frame snapshot. Epoch rotation invalidates writes and approvals.
+- Active `task.send` requires matching `expectedTurnId`; stale/missing values
+  fail before text is forwarded. Active steering cannot change model/effort.
 
-- 同一 ID、同一请求返回原结果；
-- 同一 ID、不同请求失败；
-- epoch 变化后旧写入和旧审批失效；
-- seq 断档使客户端停止应用增量并重新同步。
+The phone never supplies a project path. `task.create.projectId` must resolve
+through the companion's configured catalog. A path exposed in a snapshot is
+read-only display metadata and cannot be echoed as authorization.
 
-这使网络超时后的安全重试不会重复发送消息、停止任务或点击审批。
+## Approval safety
 
-## UI Automation 与审批安全
+Approval notification text is informational. The detail screen reloads the
+pending record and submits the exact `approvalId`, `threadId`, `turnId`, `epoch`,
+and `seq` binding.
 
-- 写入前和调用发送前分别核验 Codex 进程、窗口、输入框、焦点与内容。
-- 不使用固定坐标，不向未知窗口发送全局按键。
-- 审批详情是提示，实际执行必须重新匹配当前审批指纹和可见动作。
-- 普通批准只映射“允许此对话”；“始终允许”不属于普通手机批准的候选动作。
-- 拒绝只作用于当前审批，已经解决、过期、变化或旧 epoch 的审批失败关闭。
-- 真实 Computer Use 审批必须在 Codex “请求批准”设置下实机测试，自动控件测试不能替代真实 UI 验收。
+- No "approve current request" endpoint exists.
+- Command/file decisions must be in `details.allowedDecisions`.
+- Permission `granted` IDs must be a subset of requested filesystem/network IDs
+  and `scope` must be offered by `details.allowedScopes`.
+- User-input answers target pending question IDs and include required answers.
+- Session scope requires an additional Android confirmation.
+- High/critical-risk approvals require the full detail view; lock-screen actions
+  may decline/cancel but never approve.
+- Resolved, expired, cleared, or old-epoch approvals fail closed.
 
-## 发布与仓库边界
+## Privacy, revocation, and failure
 
-禁止上传 Token、私钥、keystore、密码文件、PFX/PEM/KEY、Bridge 数据库、DPAPI 密文、配对设备信息、本机路径白名单、日志和 Codex 会话记录。二进制只进入 GitHub Release，并附 SHA-256 清单。
+- Lock-screen notifications default to task title/state; command, paths, diffs,
+  answers, and approval details remain hidden.
+- Production logs contain IDs/categories/sizes/result codes only. They exclude
+  prompts, model output, commands, diffs, local paths, codes, nonces, challenges,
+  signatures, private keys, SPKI pins, task titles, and answers.
+- Diagnostic export is explicit, time-bounded, redacted, and previewed.
+- ChatGPT/Codex authentication credentials never leave the desktop boundary.
 
-Android 正式侧载包必须保证上一版本可覆盖安装。发布前核验包名、递增的 `versionCode` 和 signer SHA-256；签名密钥在仓库外安全备份。
-
-漏洞报告流程见根目录 [SECURITY.md](../SECURITY.md)。
+Production revocation must delete the registered public key, close active
+sockets, and make the next signature challenge fail. Pair/auth failure rate
+limiting by source, pairing nonce, and device ID is also a production
+requirement. If the current Bridge build has not implemented either control,
+diagnostics and release notes must say so; tests must not report them as passed.
+Logs never include submitted code/signature. If key storage, SPKI verification,
+schema verification, or approval binding is uncertain, control stops; cached
+state may remain visibly offline or `recovery_unknown`.

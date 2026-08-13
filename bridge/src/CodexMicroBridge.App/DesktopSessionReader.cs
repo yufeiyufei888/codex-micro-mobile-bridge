@@ -11,13 +11,24 @@ internal sealed record DesktopSessionMessage(
     string Text,
     DateTimeOffset Timestamp);
 
+internal sealed record DesktopSessionFileStamp(
+    long Length,
+    DateTime LastWriteTimeUtc);
+
 internal sealed class DesktopSessionReader
 {
     private const int TailBudgetBytes = 8 * 1024 * 1024;
-    private readonly string _sessionsDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".codex",
-        "sessions");
+    private const int LiveTailBudgetBytes = 2 * 1024 * 1024;
+    private const int SessionCandidateLimit = 256;
+    private readonly string _sessionsDirectory;
+
+    public DesktopSessionReader(string? sessionsDirectory = null)
+    {
+        _sessionsDirectory = sessionsDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".codex",
+            "sessions");
+    }
 
     public string? FindSessionContainingPrompt(string prompt, DateTimeOffset notBefore)
     {
@@ -30,7 +41,8 @@ internal sealed class DesktopSessionReader
                      .Select(path => new FileInfo(path))
                      .Where(file => file.LastWriteTimeUtc >= notBefore.UtcDateTime.AddSeconds(-5))
                      .OrderByDescending(file => file.LastWriteTimeUtc)
-                     .Take(24)
+                     .Take(SessionCandidateLimit)
+                     .Where(file => IsRootSession(file.FullName))
                      .Select(file => file.FullName))
         {
             if (TailContainsUserMessage(path, prompt))
@@ -53,7 +65,7 @@ internal sealed class DesktopSessionReader
             .Select(path => new FileInfo(path))
             .Where(file => file.LastWriteTimeUtc >= notBefore.UtcDateTime.AddMinutes(-1))
             .OrderByDescending(file => file.LastWriteTimeUtc)
-            .Take(24)
+            .Take(SessionCandidateLimit)
             .FirstOrDefault(file => IsRootSession(file.FullName))
             ?.FullName;
     }
@@ -63,10 +75,58 @@ internal sealed class DesktopSessionReader
         return ReadConversationMessages(path).LastOrDefault(message => message.Role == "assistant");
     }
 
+    public DesktopSessionFileStamp? ReadFileStamp(string path)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            return file.Exists
+                ? new DesktopSessionFileStamp(file.Length, file.LastWriteTimeUtc)
+                : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     public IReadOnlyList<DesktopSessionMessage> ReadConversationMessages(string path)
     {
+        return ReadConversationMessages(path, TailBudgetBytes, includeEventMirrors: true);
+    }
+
+    public IReadOnlyList<DesktopSessionMessage> ReadCanonicalLiveMessages(string path)
+    {
+        return ReadConversationMessages(path, LiveTailBudgetBytes, includeEventMirrors: false);
+    }
+
+    public IReadOnlyList<DesktopSessionMessage> ReadCanonicalConversationMessages(string path)
+    {
+        return ReadConversationMessages(path, TailBudgetBytes, includeEventMirrors: false);
+    }
+
+    public IReadOnlyList<DesktopSessionMessage>? ReadCanonicalMessagesSince(string path, long previousLength)
+    {
+        var lines = ReadLinesFromOffset(path, previousLength);
+        return lines is null
+            ? null
+            : ParseConversationMessages(lines, includeEventMirrors: false);
+    }
+
+    private static IReadOnlyList<DesktopSessionMessage> ReadConversationMessages(
+        string path,
+        int tailBudgetBytes,
+        bool includeEventMirrors)
+    {
+        return ParseConversationMessages(ReadTailLines(path, tailBudgetBytes), includeEventMirrors);
+    }
+
+    private static IReadOnlyList<DesktopSessionMessage> ParseConversationMessages(
+        IEnumerable<string> lines,
+        bool includeEventMirrors)
+    {
         var messages = new List<(DesktopSessionMessage Message, bool IsCanonical)>();
-        foreach (var line in ReadTailLines(path))
+        foreach (var line in lines)
         {
             try
             {
@@ -98,12 +158,12 @@ internal sealed class DesktopSessionReader
                     turnId = ReadNestedString(payload, "internal_chat_message_metadata_passthrough", "turn_id");
                     canonical = true;
                 }
-                else if (outerType == "event_msg" && payloadType == "agent_message")
+                else if (includeEventMirrors && outerType == "event_msg" && payloadType == "agent_message")
                 {
                     role = "assistant";
                     text = OptionalString(payload, "message");
                 }
-                else if (outerType == "event_msg" && payloadType == "user_message")
+                else if (includeEventMirrors && outerType == "event_msg" && payloadType == "user_message")
                 {
                     role = "user";
                     text = OptionalString(payload, "message");
@@ -146,6 +206,65 @@ internal sealed class DesktopSessionReader
             .ToArray();
     }
 
+    private static IReadOnlyList<string>? ReadLinesFromOffset(string path, long previousLength)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var offset = Math.Clamp(previousLength, 0, stream.Length);
+            var start = FindContainingLineStart(stream, offset);
+            stream.Seek(start, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false);
+            var lines = new List<string>();
+            while (reader.ReadLine() is { } line)
+            {
+                lines.Add(line);
+            }
+
+            return lines;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static long FindContainingLineStart(FileStream stream, long offset)
+    {
+        if (offset <= 0)
+        {
+            return 0;
+        }
+
+        stream.Seek(offset - 1, SeekOrigin.Begin);
+        if (stream.ReadByte() == '\n')
+        {
+            return offset;
+        }
+
+        const int blockSize = 4096;
+        var buffer = new byte[blockSize];
+        var cursor = offset;
+        while (cursor > 0)
+        {
+            var blockStart = Math.Max(0, cursor - blockSize);
+            var count = checked((int)(cursor - blockStart));
+            stream.Seek(blockStart, SeekOrigin.Begin);
+            var read = stream.Read(buffer, 0, count);
+            for (var index = read - 1; index >= 0; index--)
+            {
+                if (buffer[index] == (byte)'\n')
+                {
+                    return blockStart + index + 1;
+                }
+            }
+
+            cursor = blockStart;
+        }
+
+        return 0;
+    }
+
     private static string CreateStableMessageId(string role, string text, DateTimeOffset timestamp)
     {
         var material = $"{role}\0{timestamp.ToUnixTimeMilliseconds()}\0{text}";
@@ -155,7 +274,7 @@ internal sealed class DesktopSessionReader
 
     private static bool TailContainsUserMessage(string path, string prompt)
     {
-        foreach (var line in ReadTailLines(path))
+        foreach (var line in ReadTailLines(path, TailBudgetBytes))
         {
             try
             {
@@ -193,7 +312,12 @@ internal sealed class DesktopSessionReader
     {
         try
         {
-            var firstLine = File.ReadLines(path).FirstOrDefault();
+            // Codex keeps the active rollout open for append. File.ReadLines opens with
+            // FileShare.Read only, which conflicts with that writer on Windows even though
+            // the contents are otherwise readable. Use the same sharing contract as the
+            // tail reader so an active conversation is not misclassified as a non-root
+            // session merely because Codex is currently writing it.
+            var firstLine = ReadFirstLineShared(path);
             if (firstLine is null)
             {
                 return false;
@@ -206,8 +330,9 @@ internal sealed class DesktopSessionReader
                 return false;
             }
 
+            var source = OptionalString(payload, "thread_source");
             return (!payload.TryGetProperty("parent_thread_id", out var parent) || parent.ValueKind == JsonValueKind.Null) &&
-                (!payload.TryGetProperty("thread_source", out var source) || source.GetString() != "subagent");
+                !string.Equals(source, "subagent", StringComparison.Ordinal);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -215,12 +340,27 @@ internal sealed class DesktopSessionReader
         }
     }
 
-    private static IReadOnlyList<string> ReadTailLines(string path)
+    private static string? ReadFirstLineShared(string path)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true,
+            leaveOpen: false);
+        return reader.ReadLine();
+    }
+
+    private static IReadOnlyList<string> ReadTailLines(string path, int tailBudgetBytes)
     {
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            var start = Math.Max(0, stream.Length - TailBudgetBytes);
+            var start = Math.Max(0, stream.Length - tailBudgetBytes);
             stream.Seek(start, SeekOrigin.Begin);
             using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false);
             if (start > 0)

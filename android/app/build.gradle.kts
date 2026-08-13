@@ -15,8 +15,8 @@ android {
         applicationId = "com.codexmicro.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.1"
+        versionCode = 15
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -38,10 +38,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
     }
 
     compileOptions {
@@ -111,11 +107,6 @@ dependencies {
     implementation(libs.mlkit.barcode)
 
     testImplementation(libs.junit)
-    testImplementation(libs.androidx.test.core.ktx)
-    testImplementation(libs.robolectric)
-    testImplementation(platform(libs.androidx.compose.bom))
-    testImplementation(libs.androidx.compose.ui.test.junit4)
-    testImplementation(libs.androidx.compose.ui.test.manifest)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso)
     androidTestImplementation(libs.androidx.room.testing)

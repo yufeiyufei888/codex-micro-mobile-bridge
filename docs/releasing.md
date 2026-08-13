@@ -1,86 +1,128 @@
-# Codex Micro 发布流程
+# 发布流程
 
-本流程适用于 v1.0.2 及以后正式版本。代码改完不等于可以发布；用户实机验收和明确确认是创建正式标签与 Release 的硬门禁。
+本文定义 Codex Micro 的版本提交、标签和 GitHub Release 门禁。自动测试通过不等于实机验收通过；只有用户完成电脑与手机联合测试并明确确认后，才能正式发布新版本。
 
-## 1. 建立发布分支
+## 1. GitHub 身份与仓库门禁
 
-从最新 `main` 创建 `release/vX.Y.Z`，或在功能开发阶段使用 `agent/<feature>`。不要直接在已发布标签上修改，也不要 force push 已发布历史。
-
-## 2. 同步版本号
-
-- Android `versionCode` 必须严格递增。
-- Android `versionName` 改为目标 `X.Y.Z`。
-- Windows `Version` 改为 `X.Y.Z`。
-- Windows `AssemblyVersion` 和 `FileVersion` 改为 `X.Y.Z.0`。
-- 更新 `CHANGELOG.md` 和 `docs/vX.Y.Z-release-notes.md`。
-
-## 3. 自动验证
+任何创建仓库、推送、标签或 Release 写入之前，都必须重新核验本机 GitHub CLI 账号：
 
 ```powershell
-node .\shared\protocol-v1\validate-fixtures.mjs
-dotnet test .\bridge\CodexMicroBridge.sln -c Release
-
-$env:JAVA_HOME = '<JDK 17 路径>'
-$env:ANDROID_SDK_ROOT = '<Android SDK 路径>'
-.\android\gradlew.bat -p .\android --no-daemon testDebugUnitTest assembleDebug
+$githubLogin = gh api user --jq .login
+if ($githubLogin -ne 'yufeiyufei888') {
+    throw "当前账号 $githubLogin 未获授权，停止 GitHub 写入。"
+}
 ```
 
-记录本次实际测试数量和失败/跳过项，不沿用旧版本的固定数字。静态检查、单元测试和构建成功不能写成真实手机、真实网络或真实 Codex UI 验收。
+- 唯一授权账号：`yufeiyufei888`
+- 仓库：`yufeiyufei888/codex-micro-mobile-bridge`
+- 可见性：`PRIVATE`
+- 默认分支：`main`
+- 禁止向其他账号创建、推送、转移或发布仓库。
 
-## 4. Android 签名连续性
+## 2. 版本号
 
-v1.0.0 和 v1.0.1 的签名证书不同，导致 Android 拒绝覆盖安装。v1.0.2 起必须同时满足：
+每个新版本必须同时更新：
 
-- 调试侧载包名保持 `com.codexmicro.mobile.debug`；
-- 使用与 v1.0.1 相同的签名密钥；
-- `versionCode` 大于上一正式版本；
-- 使用 `apksigner verify --print-certs` 强制核验。
+- Android `versionName`
+- Android 递增的 `versionCode`
+- Windows Bridge `Version`
+- Windows `AssemblyVersion` 与 `FileVersion`
+- README、CHANGELOG 和对应 `docs/releases/vX.Y.Z.md`
 
-v1.0.1 预期 signer SHA-256：
+历史包名保持 `com.codexmicro.mobile.debug`。v1.0.1 及以后版本必须保持既有签名连续性；签名证书 SHA-256 为：
 
 ```text
 B952979D47D4437B7BF694AB52B9F9165331EAD74EAF9A780E7B32F550FE7D9C
 ```
 
-签名密钥和密码不得提交到 Git。应在仓库外安全备份，并通过本地忽略配置引用。
+签名指纹可公开用于校验，但 keystore、密码和私钥禁止提交或上传。
 
-## 5. 打包与校验
+## 3. 自动验证
 
-每个正式版本准备：
+在普通 ASCII 路径的干净仓库中执行：
+
+```powershell
+node .\shared\protocol-v1\validate-fixtures.mjs
+dotnet test .\bridge\CodexMicroBridge.sln -c Release
+.\android\gradlew.bat -p .\android --no-daemon testDebugUnitTest assembleDebug
+```
+
+记录实际测试数量和结果。构建成功、静态检查或编译通过不能替代真实测试执行。
+
+发布前核验 APK：
+
+- applicationId 与既有包名一致
+- `versionName` 与标签一致
+- `versionCode` 严格递增
+- signer SHA-256 与既有发布密钥一致
+
+任一项不符立即停止发布。
+
+## 4. 用户实机验收
+
+每个版本都必须由用户在真实 Windows Codex Desktop 和 Android 手机上测试。至少覆盖：
+
+1. 手机发送本轮消息后，本轮回复无需第二次发送即可到达。
+2. 电脑主动发送的消息和回复无需刷新、重连或手机主动发送即可到达。
+3. 真实 Computer Use 批准和拒绝正确；批准只执行一次，拒绝不执行，审批完成后状态恢复。
+4. 电脑与手机的桌面同步/降级状态一致。
+5. Wi-Fi 重连、后台和锁屏连接符合该版本发布目标。
+
+用户未明确确认时，只能保留源码提交或发布候选，不能创建正式标签、不能发布正式 Release、不能设为 Latest。
+
+## 5. 提交与标签
+
+- 一个版本只创建一次正式发布提交和一个不可移动的 annotated tag。
+- 标签格式：`vX.Y.Z`。
+- 禁止 force push、移动标签或重写已发布历史。
+- 如果旧版本没有可独立验证的精确源码快照，只能建立明确标注的历史二进制归档，不能用当前源码改版本号伪造旧源码。
+
+历史归档提交只包含：
+
+```text
+archive/vX.Y.Z/README.md
+archive/vX.Y.Z/SHA256SUMS.txt
+docs/releases/vX.Y.Z.md
+```
+
+## 6. Release 资产
+
+每个正式 GitHub Release 固定上传：
 
 ```text
 CodexMicroMobile-vX.Y.Z.apk
 CodexMicroBridge-vX.Y.Z-zhCN-win-x64-desktop-sync.zip
 SHA256SUMS.txt
-docs/vX.Y.Z-release-notes.md
 ```
 
-Windows 自包含发布目录整体压缩为一个 ZIP，不把数百个运行文件逐个提交到 Git。`SHA256SUMS.txt` 只写哈希和文件名，不写本机绝对路径。
+- 二进制只进入 GitHub Releases，不进入 Git 历史。
+- 历史版本必须使用本机保留的原始 APK 和对应 Windows 发布目录，不得把新版本产物改名伪装成旧版本。
+- `SHA256SUMS.txt` 必须由该 Release 实际上传的 APK 和 ZIP 重新计算并复核。
+- Release 正文使用 `docs/releases/vX.Y.Z.md`。
+- 已知失败版本必须在标题或首段醒目标注；v1.0.5 必须写“严重同步回归，不建议使用”。
 
-## 6. 用户实机验收
+## 7. 提交前安全检查
 
-至少验证：
+确认 Git 只包含源码、测试、文档和历史校验文本，不包含：
 
-- 手机和电脑完成配对、绿色连接和普通消息发送；
-- 电脑直接输入消息时手机保持连接；
-- 长回复末尾完整显示；
-- 两轮 Wi-Fi 断开和恢复都从第 1 次重新计算重连；
-- 红米 K80 Pro 前台、后台和锁屏保活；
-- 最近回复不在顶部状态卡重复，重连后回复不重复，历史可查看；
-- Bridge 自带审批测试的批准、拒绝和一次性执行；
-- 真实 Codex Computer Use 审批的批准与拒绝；
-- 普通批准不会误触“始终允许”；
-- Windows EXE、主窗口和托盘图标；
-- 新 APK 能覆盖安装上一正式版本，签名和版本码均符合门禁。
+- `work/`、`outputs/`、构建缓存、`bin/`、`obj/`、`build/`
+- APK、EXE、ZIP、PDB、数据库、证书私钥、keystore、Token、日志
+- Bridge 配对信息、真实设备 ID、私网地址或 Codex rollout 会话
+- 本机绝对路径和未脱敏的用户内容
 
-## 7. 正式发布
+执行并逐条人工判断命中：
 
-只有用户明确回复“测试正常”或确认发布后，才可以：
+```powershell
+git grep -n -I "C:\\Users\\yufei"
+git grep -n -I -E "rollout-[0-9]|\.codex\\sessions|192\.168\.|47127"
+git grep -n -I -E "(ghp_|github_pat_|sk-[A-Za-z0-9_-]+|BEGIN .*PRIVATE KEY|password|token)"
+git diff --cached --check
+git status --short
+```
 
-1. 合并发布分支到 `main`；
-2. 创建 annotated tag：`git tag -a vX.Y.Z -m "Codex Micro vX.Y.Z"`；
-3. 推送 `main` 和标签；
-4. 创建非 prerelease 的 GitHub Release；
-5. 上传 APK、Windows ZIP 和 `SHA256SUMS.txt`。
+## 8. 发布后复核
 
-发布后再次核验账号为 `yufeiyufei888`、仓库为 Private、默认分支为 `main`、标签和 Release 资产完整、远程哈希与本地一致。已发布标签禁止移动；出现问题时发布新的补丁版本。
+- 再次核验仓库仍为 Private、默认分支仍为 `main`。
+- 记录发布提交 SHA、标签 SHA 和 Release 链接。
+- 下载或通过 API 核对每个 Release 的资产名、大小和 SHA-256。
+- 在 CHANGELOG 和 Release Notes 中保留自动测试、实机测试和未完成项的真实边界。

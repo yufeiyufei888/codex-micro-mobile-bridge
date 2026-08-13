@@ -1,6 +1,6 @@
 # Codex Micro Desktop Sync Bridge (Windows)
 
-V1.0.1 is a Windows companion for the Android Codex Micro controller. It exposes a pinned-TLS, device-authenticated LAN WSS endpoint and maps the phone to the currently active Codex desktop conversation. Desktop state changes are serialized, complete conversation history is synchronized, and approval controls are detected before the composer requirement is evaluated.
+V1.0.6 is a Windows companion for the Android Codex Micro controller. It exposes a pinned-TLS, device-authenticated LAN WSS endpoint and maps the phone to the currently active Codex desktop conversation. Active rollout metadata is opened with Windows writer-compatible sharing, so a file that Codex is currently appending is not rejected as a non-root session. The existing verified binding also remains live while an exact phone prompt is being associated.
 
 ## Desktop sync boundary
 
@@ -32,4 +32,4 @@ work\dotnet10\dotnet.exe publish bridge\src\CodexMicroBridge.App\CodexMicroBridg
 
 The bridge targets `net10.0-windows`. Automated tests cover protocol validation, pairing and authentication, TLS/persistence boundaries, idempotency, reducer behavior, session-response extraction, and the stable virtual desktop task. Actual Codex Desktop input, approval controls, and Windows-version accessibility behavior require interactive end-to-end verification.
 
-Legacy App Server adapter and schema projects remain in the repository for compatibility tests and historical reference, but the V1.0.1 runtime does not start an App Server child process.
+Legacy App Server adapter and schema projects remain in the repository for compatibility tests and historical reference, but the V1.0.6 runtime does not start an App Server child process.

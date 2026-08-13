@@ -38,6 +38,7 @@ import com.codexmicro.mobile.network.ApprovalRequestedData
 import com.codexmicro.mobile.network.ApprovalResolvedData
 import com.codexmicro.mobile.network.TaskErrorData
 import com.codexmicro.mobile.network.BridgeStatusData
+import com.codexmicro.mobile.network.WireBridgeStatus
 import com.codexmicro.mobile.network.CommandApprovalDetails
 import com.codexmicro.mobile.network.FileChangeApprovalDetails
 import com.codexmicro.mobile.network.PermissionApprovalDetails
@@ -114,6 +115,18 @@ internal fun isCanonicalProgressSource(source: String?): Boolean = source in set
     "desktop_ui_status",
 )
 
+internal fun restoreAuthoritativeBridgeStatus(
+    authoritative: WireBridgeStatus?,
+    deviceName: String,
+): ConnectionStatus = when (authoritative?.status) {
+    null, "online" -> ConnectionStatus.Online(TransportKind.LAN_WSS, deviceName)
+    "connecting" -> ConnectionStatus.Connecting
+    "degraded" -> ConnectionStatus.Degraded(authoritative.reason)
+    "recovery_unknown" -> ConnectionStatus.RecoveryUnknown(authoritative.reason)
+    "offline" -> ConnectionStatus.RemoteOffline(authoritative.reason)
+    else -> error("Unsupported bridge status: ${authoritative.status}")
+}
+
 class ConnectionRepository(
     private val settingsStore: SettingsStore,
     private val tasks: TaskRepository,
@@ -137,6 +150,8 @@ class ConnectionRepository(
     private val writeMutex = Mutex()
     private var activeDeviceName = "Codex Micro"
     private val liveMessageDeltas = mutableMapOf<String, StringBuilder>()
+    private var authoritativeBridgeStatus: WireBridgeStatus? = null
+    @Volatile private var transientRecoveryPending = false
     @Volatile private var connectionGeneration = 0L
 
     suspend fun pairAndConnect(pairing: PairingInfo) {
@@ -715,6 +730,7 @@ class ConnectionRepository(
             _status.value = ConnectionStatus.Degraded(
                 "收到一条无法应用的状态更新，连接仍保持；正在自动同步完整状态",
             )
+            transientRecoveryPending = true
             scheduleAuthoritativeRefresh(generation, active)
         }
     }
@@ -736,7 +752,9 @@ class ConnectionRepository(
             applySnapshot(snapshot, envelope.epoch, envelope.seq)
             eventCursor = eventCursor.acceptSnapshot(envelope.epoch, envelope.seq)
             tasks.deletePendingCommandsOutsideEpoch(envelope.epoch)
-            _status.value = snapshot.bridge.toConnectionStatus()
+            authoritativeBridgeStatus = snapshot.bridge
+            transientRecoveryPending = false
+            _status.value = authoritativeBridgeStatus!!.toConnectionStatus()
             scheduleAuthoritativeRefresh(generation, active)
             return@withLock
         }
@@ -755,6 +773,7 @@ class ConnectionRepository(
                 _status.value = ConnectionStatus.Degraded(
                     "状态更新缺少 ${decision.missingCount} 条，连接仍保持；正在自动校准",
                 )
+                transientRecoveryPending = true
                 scheduleAuthoritativeRefresh(generation, active)
             }
             is CursorDecision.Accept -> eventCursor = decision.cursor
@@ -763,8 +782,9 @@ class ConnectionRepository(
             ProtocolEvents.BRIDGE_STATUS -> {
                 val bridge = json.decodeFromJsonElement<BridgeStatusData>(envelope.data)
                 require(bridge.status in CANONICAL_BRIDGE_STATUSES) { "Unsupported bridge status: ${bridge.status}" }
-                _status.value = com.codexmicro.mobile.network.WireBridgeStatus(bridge.status, bridge.reason)
-                    .toConnectionStatus()
+                authoritativeBridgeStatus = WireBridgeStatus(bridge.status, bridge.reason)
+                transientRecoveryPending = false
+                _status.value = authoritativeBridgeStatus!!.toConnectionStatus()
             }
             ProtocolEvents.TASK_STATE -> json.decodeFromJsonElement<TaskStateData>(envelope.data).task.let { wire ->
                 val existing = tasks.getTask(wire.threadId)
@@ -878,8 +898,9 @@ class ConnectionRepository(
                 if (!isCurrentConnection(generation, active)) return@launch
                 if (readTask(threadId, acknowledge = false).isFailure) return@launch
             }
-            if (isCurrentConnection(generation, active) && _status.value is ConnectionStatus.Degraded) {
-                _status.value = ConnectionStatus.Online(TransportKind.LAN_WSS, activeDeviceName)
+            if (isCurrentConnection(generation, active) && transientRecoveryPending) {
+                transientRecoveryPending = false
+                _status.value = restoreAuthoritativeBridgeStatus(authoritativeBridgeStatus, activeDeviceName)
             }
         }
     }
@@ -996,7 +1017,7 @@ class ConnectionRepository(
         completedAtEpochMs = Instant.parse(completedAt).toEpochMilli(),
     )
 
-    private fun com.codexmicro.mobile.network.WireBridgeStatus.toConnectionStatus(): ConnectionStatus =
+    private fun WireBridgeStatus.toConnectionStatus(): ConnectionStatus =
         when (status) {
             "online" -> ConnectionStatus.Online(TransportKind.LAN_WSS, activeDeviceName)
             "connecting" -> ConnectionStatus.Connecting
@@ -1215,6 +1236,8 @@ class ConnectionRepository(
         authenticated = false
         pendingSnapshot = null
         liveMessageDeltas.clear()
+        authoritativeBridgeStatus = null
+        transientRecoveryPending = false
     }
 
     private fun Throwable.hasCertificateFailure(): Boolean = generateSequence(this) { it.cause }

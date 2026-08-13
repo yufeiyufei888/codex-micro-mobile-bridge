@@ -1,87 +1,163 @@
-# Codex Micro v1.0.1 测试与验收
+# Verification strategy and acceptance matrix
 
-## 验证层级
+## Android testing setup
 
-1. **共享协议 fixtures**：验证请求、响应、事件、epoch/seq、幂等和审批语义。
-2. **Windows 自动测试**：覆盖协议互操作、配对/鉴权、TLS 与持久化边界、幂等、桌面状态、会话回复提取、审批映射和运行时通知。
-3. **Android JVM 测试**：覆盖 wire decode、二维码/SPKI、pin/SAN、连接恢复、状态展示、历史与审批交互策略。
-4. **构建验证**：编译 .NET 解决方案并生成 Android APK。
-5. **签名验证**：核验 APK 包名、版本码和 signer SHA-256。
-6. **电脑与手机实机验收**：验证真实 Wi-Fi、Codex Desktop 控件、Computer Use 审批、后台/锁屏和覆盖安装。
+The Android client is a single-platform, fully Jetpack Compose application with
+Room, Ktor, DataStore, and a manually assembled `AppContainer`. The current
+dependency graph already exposes repository and connection boundaries, so the
+test setup intentionally keeps manual dependency injection instead of adding a
+high-risk Hilt migration solely for tests.
 
-自动测试通过只证明对应代码层，不证明真实设备、真实网络或真实 Codex UI 已验收。
+### Local JVM tests
 
-## 自动验证命令
-
-共享协议：
-
-```powershell
-node .\shared\protocol-v1\validate-fixtures.mjs
-```
-
-Windows：
+JUnit 4 tests under `android/app/src/test` cover protocol parsing, epoch/sequence
+recovery, status mapping, pairing payloads, SPKI/SAN validation, user-facing
+failure messages, reply presentation, and conversation-history de-duplication.
 
 ```powershell
-dotnet test .\bridge\CodexMicroBridge.sln -c Release
+./android/gradlew.bat -p ./android --no-daemon testDebugUnitTest
 ```
 
-Android：
+JaCoCo is enabled for measurement, not as a release percentage gate. Generate
+the HTML and XML reports with:
 
 ```powershell
-$env:JAVA_HOME = '<JDK 17 路径>'
-$env:ANDROID_SDK_ROOT = '<Android SDK 路径>'
-.\android\gradlew.bat -p .\android --no-daemon testDebugUnitTest assembleDebug
+./android/gradlew.bat -p ./android --no-daemon jacocoDebugUnitTestReport
 ```
 
-统一入口：
+The report is written below
+`android/app/build/reports/jacoco/jacocoDebugUnitTestReport/`. A low whole-app
+percentage is expected while Android framework and transport orchestration
+remain device-tested; coverage must not be inflated by excluding business
+classes merely to reach a target number.
+
+### Instrumented database and Compose tests
+
+Tests under `android/app/src/androidTest` use AndroidJUnit4, an in-memory Room
+database, and Compose testing APIs. They verify snapshot replacement, outbox
+identity, message watermarks, one-copy reply presentation, history navigation,
+and `rememberSaveable` draft restoration.
+
+Compile the device test APK without claiming it ran on hardware:
 
 ```powershell
-.\scripts\verify.ps1
+./android/gradlew.bat -p ./android --no-daemon assembleDebugAndroidTest
 ```
 
-v1.0.1 建仓基线为共享协议 38 cases / 1 pair、Windows 70 项、Android JVM 23 项。每次发布必须记录命令实际输出，不能永久照抄该数字。
-
-## 桌面实机验收矩阵
-
-| 场景 | 必须结果 |
-| --- | --- |
-| Bridge 启动且 Codex 对话可见 | 显示“桌面同步可用” |
-| 手机发送普通消息 | 只写入当前 Codex 对话并成功提交 |
-| 发送瞬间切换窗口 | Bridge 拒绝操作，不向其他窗口发送 |
-| 电脑直接输入并发送 | 手机保持连接并同步状态/回复 |
-| 长回复 | 末尾完整显示，不被摘要截断 |
-| 状态卡与最近回复 | 顶部只显示状态，正文不重复 |
-| 历史记录 | 手机、电脑和助手消息可查看；重连后仍存在 |
-| 停止 | 只调用当前 Codex 对话的停止控件 |
-| Bridge 审批测试批准 | 精确执行一次预期测试动作 |
-| Bridge 审批测试拒绝 | 不执行测试动作 |
-| 真实 Computer Use 普通批准 | 只选择“允许此对话” |
-| 真实 Computer Use 拒绝 | 只拒绝当前审批 |
-| 审批变化或已解决 | 旧手机操作失败，不重复执行 |
-
-## 网络与 Android 实机矩阵
-
-| 场景 | 必须结果 |
-| --- | --- |
-| 首次二维码/手动配对 | SPKI、主机、有效期和设备签名均通过后连接 |
-| 错误 SPKI 或过期配对 | 连接硬失败，没有继续选项 |
-| Wi-Fi 断开再恢复 | 自动重连，本轮从第 1 次计数 |
-| 第二轮 Wi-Fi 断开再恢复 | 再次从第 1 次计数，不沿用上轮 |
-| 红米 K80 Pro 前台 | 持续连接 |
-| 红米 K80 Pro 后台/锁屏 | 配置自启动、电池无限制和后台锁定后持续监控 |
-| 重连快照 | 不重复完整回复，不覆盖已保存长回复 |
-| 覆盖安装 | 新 APK 使用相同包名与 signer，版本码更高，保留本地数据 |
-
-## APK 签名门禁
+With an emulator or phone visible in `adb devices`, run:
 
 ```powershell
-apksigner verify --print-certs .\CodexMicroMobile-vX.Y.Z.apk
+./android/gradlew.bat -p ./android --no-daemon connectedDebugAndroidTest
 ```
 
-v1.0.1 signer SHA-256 应为：
+Room migration testing remains blocked until the historical version 1 and 2
+Room schema JSON files are recovered. The checked-in version 3 schema is not
+enough to prove `MIGRATION_1_2` and `MIGRATION_2_3` on SQLite.
+
+### UI, screenshot, and end-to-end boundaries
+
+- Compose behavior tests use semantic matchers first; `testTag` is reserved for
+  controls that cannot be selected clearly with at most a few matchers.
+- Screen behavior must be exercised at compact, medium, expanded, and 1.5x font
+  configurations as the UI suite grows.
+- Compose Preview Screenshot Testing was evaluated but not enabled in the
+  current release line because the plugin is experimental and would add a new
+  image-baseline workflow. Introduce it on an isolated branch before making it
+  a release gate.
+- System notification, CameraX, Wi-Fi switching, Xiaomi background policy,
+  lock-screen survival, WSS pairing, and real Codex Computer Use approval are
+  end-to-end behaviors. They require a physical Android device and Windows
+  Bridge and must never be reported as passed from JVM or APK compilation alone.
+- Android package name, monotonically increasing `versionCode`, and signer
+  SHA-256 continuity are mandatory release checks. They are separate from app
+  behavior tests and must be verified on the final APK before delivery.
+
+## Test layers
+
+1. **Schema tests:** validate every business frame with
+   `shared/protocol-v1/schema.json` on Android and desktop.
+2. **Shared semantic fixtures:** replay canonical op/event coverage plus epoch,
+   sequence, turn, approval, permission-subset, and idempotency cases.
+3. **Adapter contract tests:** run recorded messages from the exact pinned
+   app-server schema through the reducer and type-specific approval mapper.
+4. **Supervisor integration tests:** fake stdio partial lines, malformed JSON,
+   stderr noise, exits, hangs, restarts, and uncertain recovery.
+5. **Security tests:** exercise `/v1/mobile` pairing/auth challenges, pinning,
+   Keystore signing, public-key revocation, replay, and log redaction.
+6. **End-to-end tests:** real pinned Codex CLI on Windows plus a physical
+   Android device over private Wi-Fi.
+
+The dependency-free guard is:
 
 ```text
-B952979D47D4437B7BF694AB52B9F9165331EAD74EAF9A780E7B32F550FE7D9C
+node shared/protocol-v1/validate-fixtures.mjs
 ```
 
-v1.0.0 使用不同 signer，不能直接覆盖安装 v1.0.1。v1.0.2 及以后必须保持与 v1.0.1 连续，并递增 `versionCode`。
+It catches fixture/canonical semantic drift. It does not replace a production
+Draft 2020-12 JSON Schema validator.
+
+## Acceptance matrix
+
+| ID | Scenario | Required result |
+| --- | --- | --- |
+| P-01 | Fresh authenticated `/v1/mobile` WSS | First business frame is `{v,epoch,seq,event:"snapshot",data}` |
+| P-02 | Snapshot/list slot shape | Exactly six ordered mappings 1..6; `threadId` is managed ID or null |
+| P-03 | Empty slot | No fake task; Android derives an unassigned card by joining slots and tasks |
+| P-03A | Task detail replacement | Snapshot/state/read task always contains nullable project ID, nullable latest-completed preview, and plan array |
+| P-04 | Event sequence gap | Client stops reducing, reconnects, and waits for snapshot; it never guesses |
+| P-05 | Old-epoch write | `STALE_EPOCH`; no local or upstream mutation |
+| P-06 | Same `clientCommandId` and body twice | Recorded response returned; action executes once |
+| P-07 | Same `clientCommandId`, different body | `IDEMPOTENCY_CONFLICT`; second body is not executed |
+| P-08 | Unknown op/event/field or legacy envelope | `INVALID_MESSAGE` schema rejection |
+| P-09 | All seven write operations | Each requires exactly named `clientCommandId` and current `epoch` |
+| P-10 | `slot.assign` with null | Slot clears; task itself is not deleted |
+| P-11 | `slot.assign` with unmanaged thread | `THREAD_NOT_FOUND`; mapping unchanged |
+| T-01 | `task.create` | Sends configured `projectId`; schema rejects phone-provided `cwd` |
+| T-02 | Idle `task.send` | `expectedTurnId` optional; valid catalog model/effort may reach `turn/start` |
+| T-03 | Active `task.send` with matching turn | `expectedTurnId` required; text reaches only that `turn/steer` |
+| T-04 | Active `task.send` with missing/stale turn | `STALE_TURN`; text is not forwarded |
+| T-05 | Active send with model/effort override | `ACTIVE_TURN_OVERRIDE_NOT_ALLOWED` or schema rejection |
+| T-06 | Model/effort selection | Model is in catalog and effort in its supported list; no "official Fast Mode" label |
+| S-01 | Valid QR nonce + six-digit code within 60s | SHA-256 SPKI checked; P-256 signature verified; desktop stores only public key |
+| S-02 | Wrong TLS key | Hard `CERT_PIN_MISMATCH`; no bypass or pairing proof sent |
+| S-03 | Reused/expired nonce or code | `AUTH_FAILED`; no device public key registered |
+| S-04 | Revoked device | Public key removed, active socket closes, next challenge fails |
+| S-05 | Public/wildcard listener attempt | Refused; no Public-profile firewall rule |
+| S-06 | Log inspection | No codes, nonces, challenges, signatures, pins, prompts, commands, paths, diffs, answers, or model output |
+| A-01 | Command approval | Details include command/cwd/reason; normalized offered decision forwarded once |
+| A-02 | File-change approval | itemId/grantRoot shown; unavailable direct paths remain null, never guessed |
+| A-03 | Permission approval | Filesystem and network-enabled shown; only real target host/protocol/optional port displayed; grants are requested subset with scope |
+| A-04 | User input | Questions/options shown; all required answers tied to exact approval |
+| A-05 | Resolved elsewhere | `APPROVAL_NOT_PENDING`; UI refreshes and no upstream duplicate is sent |
+| A-06 | Any binding field changed | `APPROVAL_BINDING_MISMATCH`; no upstream response |
+| A-07 | Approval from old epoch | `APPROVAL_STALE` or `STALE_EPOCH`; no upstream response |
+| A-08 | Four response payloads | Tagged command/file/permission/user-input union is preserved; never boolean |
+| C-01 | Pinned CLI/schema match | Child initializes over stdio and Bridge becomes online |
+| C-02 | CLI version/hash mismatch | `APP_SERVER_SCHEMA_MISMATCH`; child is not trusted |
+| C-03 | stdout split across reads | Lines buffer and each message is processed once |
+| C-04 | JSON-looking stderr | Diagnostic only; never enters reducer |
+| C-05 | Unknown upstream server request | Never auto-approved; affected task shows compatibility error |
+| R-01 | Child exits during running turn | New epoch; task becomes `recovery_unknown`, never inferred complete |
+| R-02 | Child exits with approval pending | Registry invalidated; old phone response fails |
+| R-03 | Resume proves terminal state | Unknown changes only after authoritative read/event |
+| R-04 | Resume cannot prove outcome | `recovery_unknown` persists with safe recovery action |
+| U-01 | Running without plan | Unknown/indeterminate only; no percentage |
+| U-02 | Authoritative plan steps | Completed/total matches app-server states exactly |
+| U-02A | Task plan invariant | `totalSteps == plan.length`; completed count equals completed plan entries |
+| U-02B | Recovery retains real plan | Unknown progress may show retained steps but derives no percentage/completion |
+| U-03 | Long delta stream | Token/output volume never fabricates progress |
+| E-01 | Six independent slots | Update affects only matching thread/slot join; color/text/icon agree |
+| E-02 | Network loss/return | Cached state visibly offline; reconnect snapshot causes no duplicate write |
+| E-03 | Ownership boundary | Unrelated ChatGPT Desktop task cannot be read, steered, interrupted, forked, slotted, or approved |
+| V-01 | V1 capability boundary | No voice, PTT, BLE, or foreground-open business capability exists |
+
+## Release gates
+
+- Both platforms pass every schema and shared-fixture case.
+- Runtime CLI exact version and generated-schema directory digest equal the
+  reviewed compatibility lock.
+- No failing/skipped P/T/S/A/C/R/U/E/V acceptance case is allowed for V1.
+- End-to-end evidence records exact app, companion, CLI, Android, Windows, and
+  network versions and whether the child was real or fake.
+- Static/schema/unit success is reported honestly and is not called physical
+  device, real-network, or real-Codex acceptance.

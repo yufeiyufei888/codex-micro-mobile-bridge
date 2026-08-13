@@ -1,73 +1,178 @@
-# Codex Micro v1.0.1 架构
+# Codex Micro Mobile architecture
 
-## 设计目标
+## Decision summary
 
-Codex Micro 把 Android 手机变成当前 Codex Desktop 对话的局域网控制器。v1.0.1 的运行时由一个 Android App 和一个 Windows WPF Bridge 组成，不启动独立 Codex App Server 子进程，也不创建另一套不可见任务。
+V1 is a two-process desktop companion plus an Android client:
 
 ```mermaid
 flowchart LR
-    A["Android App"] <-->|"WSS / protocol-v1"| B["Windows Bridge"]
-    B <-->|"UI Automation"| C["Codex Desktop 当前对话"]
-    B --> D["Codex 本机会话读取"]
-    B --> E["DPAPI 保护的本地状态"]
-    A --> F["Android Keystore 与 Room/DataStore"]
+  A["Android app"] <-->|"private-LAN WSS\nprotocol-v1"| G["Companion gateway"]
+  G --> S["State reducer + approval registry"]
+  S <-->|"JSONL over stdio"| C["Pinned Codex app-server child"]
+  S --> D["Encrypted local state"]
 ```
 
-## 组件
+The companion is the only Codex client. It starts a pinned `codex app-server`
+child with the default stdio transport, performs the app-server initialization
+handshake, owns the threads it creates or resumes, and translates app-server
+events into [protocol-v1](../shared/protocol-v1/README.md). Android never talks
+to app-server directly.
 
-### Android App
+## Hard ownership boundary
 
-- Kotlin、Jetpack Compose Material 3 和单向状态流。
-- 扫描或手动录入 60 秒配对信息，固定服务器证书 SHA-256 SPKI。
-- 在 Android Keystore 中生成不可导出的 P-256 设备签名密钥。
-- 维护一个已认证 WSS 连接，按 epoch/seq 顺序应用快照和事件；出现断档时重连并重新取快照。
-- 展示当前桌面对话、最近回复、完整历史和审批详情。
-- 通过前台服务支持可选的后台与锁屏持续连接。
+- A V1 task is a thread created or resumed by this companion's app-server
+  session and registered in one of six slots.
+- The companion cannot attach to, steer, interrupt, or approve a task merely
+  because it is visible in ChatGPT Desktop. ChatGPT Desktop and this companion
+  are separate app-server clients/processes.
+- Reading local ChatGPT/Codex files may be used only for an explicitly labelled
+  read-only migration/import flow. It never grants control authority and is not
+  a V1 live-state source.
+- Official Remote and reverse-engineered Codex Micro HID are outside this
+  architecture.
 
-### Windows Bridge
+This boundary is user-visible: the UI says "Companion tasks," never implies it
+is remotely controlling an independently running ChatGPT Desktop task, and
+does not merge the two task lists.
 
-- .NET 10 WPF 单实例桌面程序和托盘应用。
-- 在选定 RFC1918 局域网地址上提供 `/v1/mobile` WSS，并用 mDNS 作为不可信发现提示。
-- 管理一次性配对、设备公钥、连接挑战、写操作幂等、事件顺序和本地持久化。
-- 使用 Windows UI Automation 定位并重新核验 Codex Desktop 的窗口、输入框、发送/停止控件和审批控件。
-- 读取本机 Codex 会话记录，同步手机发送、电脑直接发送和助手完整回复。
-- 使用 DPAPI CurrentUser 保护敏感持久化字段；不向手机发送 OpenAI/Codex 凭据。
+## Components
 
-### 共享协议
+### Android
 
-`shared/protocol-v1/` 包含业务 envelope、状态码、JSON Schema、fixtures 和无依赖验证器。连接建立后，首个业务事件必须是 snapshot；后续事件只在 epoch 相同且 seq 连续时生效。
+- Pairs with the desktop QR nonce plus 60-second six-digit code, pins the
+  companion SHA-256 SPKI identity, and signs challenges with a non-exportable
+  Android Keystore P-256 key.
+- Maintains one authenticated WSS connection, treats its first business frame
+  as an authoritative `snapshot`, and applies later `epoch`/`seq` events in
+  order. A gap forces reconnect and another snapshot.
+- Renders six task slots, the four normalized approval/input types, text input, and
+  task commands. Voice and push-to-talk are outside V1.
+- Treats an accepted write as pending until authoritative lifecycle events
+  arrive.
 
-所有会改变状态的请求携带稳定 `clientCommandId`。网络超时后重试同一动作必须复用原 ID，Bridge 返回记录结果而不是重复执行；相同 ID 配不同请求体会失败。
+### Companion gateway
 
-## 桌面操作边界
+- Binds only to selected private interfaces and exposes WSS, not the
+  app-server child.
+- Authenticates the WebSocket upgrade and validates every protocol-v1 message.
+  Pair/auth rate limiting remains an explicit production release gate until its
+  implementation and abuse tests are present.
+- Owns epochs, ordered events, `clientCommandId` idempotency, the six-slot
+  mapping, pending-approval bindings, and snapshot creation.
+- Stores the TLS private key/recovery state for the current OS user, registered
+  Android public keys, idempotency records, and slot assignments.
 
-手机发送消息时，Bridge 按以下顺序执行：
+### App-server supervisor and adapter
 
-1. 找到已核验的 Codex Desktop 进程和当前前台窗口；
-2. 定位当前可见 ProseMirror 输入框；
-3. 写入完整文本；
-4. 重新核验窗口、进程、控件、焦点和输入值；
-5. 调用当前输入框关联的发送按钮；
-6. 验证输入框已经提交。
+- Requires the exact pinned Codex CLI version and matching generated schema lock
+  before launching it as a child process.
+- Uses stdin/stdout as newline-delimited JSON only. The child's stderr is a
+  diagnostic stream and is never parsed as protocol data.
+- Initializes once, creates/resumes only companion-owned threads, forwards the
+  nine supported operations, and reduces notifications into nine public event
+  types.
+- Converts exactly four server-request families into `approval.requested`
+  events and maps `approval.respond` back to their type-specific responses.
+- Fails closed when the runtime CLI/schema differs from the build lock.
 
-任一步骤无法证明目标仍是同一 Codex 对话时，操作失败关闭。实现不依赖固定屏幕坐标，也不会向其他窗口发送无条件全局回车。
+## Public business protocol
 
-审批发现优先于输入框可用性判断，因此 Computer Use 弹窗遮挡输入框时仍能显示待审批状态。执行手机决定前，Bridge 再次核验审批指纹；普通批准只能选择“允许此对话”，拒绝只作用于当前审批。
+Pairing and connection challenge frames are transport extensions on the same
+`/v1/mobile` WSS. Once authenticated, Android and the companion exchange only
+these canonical forms:
 
-## 回复和历史同步
+```text
+request:  {v:1, id, op, params}
+response: {v:1, id, result} or {v:1, id, error}
+event:    {v:1, epoch, seq, event, data}
+```
 
-Bridge 将 UI 状态和本地 Codex 会话记录合并为一个桌面会话视图。完整回复先写入历史，再更新摘要状态；Android 顶部状态卡只表达运行状态，完整正文位于“最近回复”和历史页，避免同一回复重复展示。
+The only V1 operations are `tasks.list`, `task.create`, `task.read`,
+`task.send`, `task.interrupt`, `task.fork`, `task.read_ack`,
+`approval.respond`, and `slot.assign`. The only V1 events are `snapshot`,
+`bridge.status`, `task.state`, `task.message.delta`,
+`task.message.completed`, `task.plan.updated`, `approval.requested`,
+`approval.resolved`, and `task.error`.
 
-Android 使用 Room 持久化历史，重连快照不会覆盖已经保存的完整长回复。手机发送、电脑直接发送和助手回复都可以出现在历史中。
+All seven writes carry a stable `clientCommandId` and current `epoch`.
+`task.create` selects a desktop-configured `projectId`; Android never submits a
+filesystem path. `snapshot`/`tasks.list` provide a `projectCatalog` with
+`projectId` and display name; a path, if exposed, is read-only companion
+metadata and is never accepted back as `cwd`.
 
-## 失败与恢复
+Every snapshot contains exactly six ordered slot mappings. A mapping with
+`threadId: null` is empty; the `tasks` array contains only real managed threads.
+Android joins the arrays and derives an unassigned card for each empty slot
+instead of receiving fake tasks. `slot.assign` accepts `null` to clear a slot;
+a non-null ID must already be a companion-managed thread.
 
-- 临时网络中断：Android 保留离线状态并指数退避重连；新连接从 snapshot 恢复。
-- epoch 变化或 seq 断档：停止应用增量，重新连接，不猜测缺失状态。
-- Codex 窗口最小化、切换或控件变化：Bridge 标记桌面同步未就绪，不执行写入。
-- 审批已经变化或被其他端解决：手机决定被拒绝，不重复执行。
-- 证书 SPKI、设备签名或挑战不匹配：连接硬失败，没有“继续连接”选项。
+Every real task also carries nullable `projectId`, nullable
+`lastMessagePreview`, and an authoritative `plan` array. The Bridge obtains the
+project identity from its managed registry, updates the preview only from a
+completed message, and replaces the plan from app-server plan state. Android
+uses these fields for the project/recent-reply detail and replaces its cached
+copy atomically on snapshot/task updates.
 
-## 遗留 App Server 资料
+For `task.send`, the adapter branches on authoritative task state. If the task
+is idle, it starts a turn and may apply an optional catalog model/effort. If a
+turn is active, Android must send the matching `expectedTurnId`; the adapter
+steers that turn and rejects a missing/mismatched value as `STALE_TURN`.
+Model/effort overrides are rejected on the active-steer branch.
 
-`shared/app-server-schema/`、`shared/app-server-compat/` 和 `docs/app-server-compat.md` 保留早期架构研究、生成 Schema 和兼容测试证据。它们不是 v1.0.1 的运行时控制链路。若未来重新采用 App Server，必须建立新的明确版本边界和独立验收，不能把这些遗留资料当作当前能力声明。
+`snapshot` and `tasks.list` carry the app-server-derived `modelCatalog` with
+model ID, display name, supported reasoning efforts, and default marker. The UI
+uses those exact capabilities. It does not label any option "official Fast
+Mode" or infer speed from reasoning effort.
+
+## State authority
+
+The reducer follows these precedence rules:
+
+1. A protocol snapshot is authoritative for Android at its `(epoch, seq)`.
+2. Within an epoch, later contiguous server messages replace earlier derived
+   state.
+3. `item/completed` and `turn/completed` are authoritative terminal evidence.
+4. A write response with `result.accepted: true` is not terminal evidence.
+5. Text deltas, token counts, elapsed time, CPU activity, and process presence
+   prove activity only; they never prove completion or a percentage.
+6. If continuity is lost, the state is `recovery_unknown` until app-server
+   supplies enough authoritative data to prove another state.
+
+Progress is limited to `unknown`, an indeterminate activity label, or explicit
+completed/total app-server plan steps. The protocol intentionally has no
+percentage field. For `plan_steps`, total equals the authoritative task plan
+length and completed equals the count of completed plan entries. An unknown or
+indeterminate task may retain real plan steps, but those steps do not prove a
+percentage or terminal outcome.
+
+## Crash and restart flow
+
+1. Unexpected app-server exit invalidates every pending approval immediately.
+2. The companion records which threads/turns lacked a terminal event, rotates
+   the epoch, closes clients with a restart/reconnect indication, and starts a
+   replacement child with bounded exponential backoff.
+3. On reconnect, Android receives a new epoch and full snapshot. Previously
+   in-flight tasks are `recovery_unknown`; pending approvals are gone.
+4. The supervisor initializes the replacement child and resumes only known
+   companion-owned threads.
+5. A task leaves `recovery_unknown` only when `thread/read`, a runtime status
+   notification, or later turn/item lifecycle proves the new state. If no
+   terminal outcome can be proven, it remains unknown and the UI offers a safe
+   refresh/new-turn path. It is never silently changed to completed.
+
+## V1 and V2 boundary
+
+| Capability | V1 | V2 candidate |
+| --- | --- | --- |
+| Transport | Private-LAN WSS only | Custom BLE GATT fallback |
+| Hosts | One paired companion active at a time | Multi-host roaming |
+| Tasks | Six companion-owned slots | Pinned/recent rules and larger lists |
+| Approvals/input | Four normalized types with type-specific details/responses | MCP elicitation and dynamic tools |
+| Voice/PTT | Not included | Optional phone speech-to-text or streaming voice UX |
+| Progress | Unknown/indeterminate/real plan steps | Additional authoritative metrics |
+| Codex actions | Nine canonical operations only | Skills pad, macros, additional operations |
+| Model controls | Catalog-backed selection on create/idle start only | Additional upstream-supported controls |
+| ChatGPT Desktop tasks | Explicitly unsupported | Only if OpenAI publishes a supported attach API |
+
+V2 does not relax approval binding, certificate pinning, idempotency, or the
+ban on fabricated progress.

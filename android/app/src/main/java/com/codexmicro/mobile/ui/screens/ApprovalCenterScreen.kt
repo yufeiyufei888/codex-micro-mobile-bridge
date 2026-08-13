@@ -146,6 +146,9 @@ private fun ApprovalCard(
     }
     var menuExpanded by remember(approval.id) { mutableStateOf(false) }
     var confirmSession by remember(approval.id) { mutableStateOf(false) }
+    val displayReason = remember(approval.reason, approval.title) {
+        sanitizeApprovalReason(approval.reason, approval.title)
+    }
     val (icon, color, label) = when (approval.status) {
         ApprovalStatus.PENDING -> Triple(Icons.Rounded.Schedule, Amber300, "等待你的确认")
         ApprovalStatus.APPROVED -> Triple(Icons.Rounded.CheckCircle, Emerald300, "已批准")
@@ -161,8 +164,26 @@ private fun ApprovalCard(
                 Text("· ${formatTime(approval.requestedAtEpochMs)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(approval.taskTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
-            Text(approval.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(approval.reason, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                approval.title,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (displayReason.isNotBlank()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "请求内容",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        displayReason,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
             ApprovalTypedDetails(approval)
             if (approval.commandPreview.isNotBlank()) {
                 Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
@@ -224,6 +245,25 @@ private fun ApprovalCard(
             dismissButton = { TextButton(onClick = { confirmSession = false }) { Text("返回") } },
         )
     }
+}
+
+internal fun sanitizeApprovalReason(reason: String, title: String): String {
+    val genericChromeText = setOf(
+        "确认", "权限", "审批", "批准", "待批准", "等待批准", "允许", "拒绝", "取消",
+        "Computer Use", "Confirm", "Permission", "Approval", "Approve", "Allow", "Deny", "Cancel",
+    )
+    return reason
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .lineSequence()
+        .map { it.trim().replace(Regex("\\s+"), " ") }
+        .filter { it.isNotEmpty() }
+        .filterNot { line -> genericChromeText.any { it.equals(line, ignoreCase = true) } }
+        .filterNot { it.equals(title.trim(), ignoreCase = true) }
+        .distinctBy { it.lowercase() }
+        .toList()
+        .takeLast(4)
+        .joinToString("\n")
 }
 
 @Composable

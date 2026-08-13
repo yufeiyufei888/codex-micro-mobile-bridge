@@ -60,6 +60,12 @@ internal sealed class DesktopCodexAutomation
         "approval", "approve", "permission", "confirm", "allow command", "computer use",
     ];
 
+    private static readonly HashSet<string> ApprovalSummaryChromeText = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "确认", "权限", "审批", "批准", "待批准", "等待批准", "允许", "拒绝", "取消",
+        "Computer Use", "Confirm", "Permission", "Approval", "Approve", "Allow", "Deny", "Cancel",
+    };
+
     public DesktopCodexInspection Inspect()
     {
         try
@@ -98,6 +104,10 @@ internal sealed class DesktopCodexAutomation
         catch (InvalidOperationException exception)
         {
             return new DesktopCodexInspection(false, false, "当前桌面对话", null, exception.Message);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return new DesktopCodexInspection(false, false, "当前桌面对话", null, "Codex 控件树正在刷新，请稍后重试。");
         }
     }
 
@@ -361,13 +371,29 @@ internal sealed class DesktopCodexAutomation
             rectangle.Height,
             string.Join('\n', visibleText));
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
-        var summary = string.Join("\n", visibleText).Trim();
+        var summary = BuildApprovalSummary(visibleText);
         return new DesktopApprovalTarget(
             fingerprint,
             acceptCurrent.Name,
             alwaysAllow?.Current.Name,
             decline?.Current.Name,
-            summary.Length <= 4000 ? summary : summary[..4000]);
+            summary);
+    }
+
+    internal static string BuildApprovalSummary(IEnumerable<string> visibleText)
+    {
+        var meaningfulLines = visibleText
+            .SelectMany(text => NormalizeComposerText(text).Split('\n'))
+            .Select(line => string.Join(' ', line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+            .Where(line => line.Length > 0)
+            .Where(line => !ApprovalSummaryChromeText.Contains(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .TakeLast(4)
+            .ToArray();
+        var summary = meaningfulLines.Length == 0
+            ? "请确认是否允许当前 Codex 使用电脑功能。"
+            : string.Join("\n", meaningfulLines);
+        return summary.Length <= 4000 ? summary : summary[..4000];
     }
 
     internal static DesktopApprovalButtonKind ClassifyApprovalButtonName(string name)
@@ -497,9 +523,9 @@ internal sealed class DesktopCodexAutomation
         var result = new List<AutomationElement>(collection.Count);
         for (var index = 0; index < collection.Count; index++)
         {
-            var element = collection[index];
             try
             {
+                var element = collection[index];
                 var current = element.Current;
                 if (current.IsEnabled && !current.IsOffscreen && !current.BoundingRectangle.IsEmpty)
                 {
@@ -509,6 +535,12 @@ internal sealed class DesktopCodexAutomation
             catch (ElementNotAvailableException)
             {
                 // The web view can recycle virtualized elements while the tree is enumerated.
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Chromium can invalidate the UIA collection count while a virtualized subtree
+                // is being replaced. Stop this snapshot and retry on the next inspection.
+                break;
             }
         }
 
