@@ -11,6 +11,7 @@ import com.codexmicro.mobile.data.TaskRepository
 import com.codexmicro.mobile.data.local.CodexMicroDatabase
 import com.codexmicro.mobile.data.local.MIGRATION_1_2
 import com.codexmicro.mobile.data.local.MIGRATION_2_3
+import com.codexmicro.mobile.data.local.MIGRATION_3_4
 import com.codexmicro.mobile.data.settings.SettingsStore
 import com.codexmicro.mobile.network.NsdDiscovery
 import com.codexmicro.mobile.notifications.ApprovalNotificationManager
@@ -35,7 +36,7 @@ class CodexMicroApplication : Application() {
             override fun onAvailable(network: Network) {
                 container.appScope.launch {
                     val settings = container.settingsStore.settings.first()
-                    if (settings.keepConnected && !settings.demoEnabled) {
+                    if (settings.keepConnected) {
                         settings.pairing?.let(container.connectionRepository::reconnectNow)
                     }
                 }
@@ -44,15 +45,8 @@ class CodexMicroApplication : Application() {
         container.appScope.launch {
             container.settingsStore.ensureClientIdentity()
             val settings = container.settingsStore.settings.first()
-            when {
-                settings.demoEnabled -> {
-                    container.connectionRepository.useDemoAndAwait()
-                    container.notifications.cancelAllApprovals()
-                    container.taskRepository.resetDemoData()
-                }
-                settings.pairing != null -> container.connectionRepository.ensureConnected(settings.pairing)
-                else -> container.connectionRepository.disconnect()
-            }
+            settings.pairing?.let(container.connectionRepository::ensureConnected)
+                ?: container.connectionRepository.disconnect()
         }
     }
 }
@@ -69,7 +63,7 @@ class AppContainer(application: Application) {
         application,
         CodexMicroDatabase::class.java,
         "codex-micro.db",
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     val settingsStore = SettingsStore(application)
     val taskRepository: TaskRepository = RoomTaskRepository(database, localJson)
     val notifications = ApprovalNotificationManager(application)

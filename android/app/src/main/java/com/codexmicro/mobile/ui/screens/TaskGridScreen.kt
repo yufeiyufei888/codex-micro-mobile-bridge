@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,11 +48,10 @@ fun TaskGridScreen(
     onPair: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // The v0.2 desktop-sync surface intentionally exposes one current desktop conversation.
     @Suppress("UNUSED_VARIABLE") val legacyCallbacks =
         listOf(models, projects, onCreateTask, onAssignSlot, onClearSlot, onTogglePinned)
-    val current = tasks.firstOrNull()
-    val offline = connection !is ConnectionStatus.Online && connection != ConnectionStatus.Demo
+    val (current, recent) = splitDesktopConversations(tasks)
+    val offline = connection !is ConnectionStatus.Online
 
     Column(
         modifier = modifier
@@ -63,7 +63,7 @@ fun TaskGridScreen(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("桌面同步", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "控制电脑屏幕上当前打开的 Codex 对话",
+                "分别查看当前对话与最近对话的回复、状态和审批",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -74,7 +74,7 @@ fun TaskGridScreen(
         if (current != null) {
             TaskCard(
                 task = current,
-                slot = 1,
+                slot = current.slot ?: 1,
                 offline = offline,
                 onClick = { onOpenTask(current.id) },
                 onLongClick = { onOpenTask(current.id) },
@@ -86,7 +86,7 @@ fun TaskGridScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null)
-                Text("打开当前桌面对话控制器")
+                Text("打开当前对话")
             }
         } else {
             Card(
@@ -104,6 +104,20 @@ fun TaskGridScreen(
             }
         }
 
+        if (recent.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("最近对话", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    "历史对话按各自会话独立保存；切回电脑当前对话后才可从手机发送。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            recent.forEach { task ->
+                ConversationRow(task = task, onClick = { onOpenTask(task.id) })
+            }
+        }
+
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = MaterialTheme.shapes.large,
@@ -111,14 +125,59 @@ fun TaskGridScreen(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("使用说明", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("1. 电脑上先切换到你要控制的 Codex 对话。")
-                Text("2. 手机进入上方卡片，输入内容并发送。")
-                Text("3. 手机消息会写入当前桌面输入框并执行发送。")
-                Text("4. 出现权限确认时，在“审批”页长按批准。")
+                Text("2. 当前对话始终显示在第一张卡片，可输入内容并发送。")
+                Text("3. 最近对话可以查看独立历史；在电脑切换后会自动置顶。")
+                Text("4. 权限确认会标明所属对话，请在“审批”页长按批准。")
                 Text(
                     "安全限制：如果 Codex 窗口、输入框或审批控件在操作前发生变化，本次操作会直接取消。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+internal fun splitDesktopConversations(tasks: List<TaskItem>): Pair<TaskItem?, List<TaskItem>> {
+    val current = tasks.firstOrNull { it.slot == 1 } ?: tasks.maxByOrNull { it.updatedAtEpochMs }
+    val recent = tasks
+        .filterNot { it.id == current?.id }
+        .sortedWith(compareBy<TaskItem> { it.slot ?: Int.MAX_VALUE }.thenByDescending { it.updatedAtEpochMs })
+    return current to recent
+}
+
+@Composable
+private fun ConversationRow(task: TaskItem, onClick: () -> Unit) {
+    val visual = task.status.visual()
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = visual.containerColor),
+        border = BorderStroke(1.dp, visual.color.copy(alpha = 0.30f)),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                contentColor = visual.color,
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Icon(visual.icon, contentDescription = null, modifier = Modifier.padding(8.dp).size(20.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(task.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(
+                    task.summary.ifBlank { "尚无回复摘要" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(visual.label, color = visual.color, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Text("对话 ${task.slot ?: "-"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -151,7 +210,6 @@ private fun ConnectionCard(connection: ConnectionStatus, onPair: () -> Unit) {
                     is ConnectionStatus.RecoveryUnknown -> connection.reason ?: "正在恢复电脑端状态"
                     is ConnectionStatus.RemoteOffline -> connection.reason ?: "电脑端暂时离线"
                     is ConnectionStatus.Error -> connection.message
-                    ConnectionStatus.Demo -> "演示数据不会操作电脑"
                     else -> "WSS 局域网安全链路 · 桌面同步模式"
                 }
                 Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

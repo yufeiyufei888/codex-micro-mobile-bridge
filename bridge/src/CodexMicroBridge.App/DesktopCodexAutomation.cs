@@ -24,6 +24,7 @@ internal enum DesktopApprovalButtonKind
 
 internal sealed record DesktopCodexInspection(
     bool Available,
+    bool CanSend,
     bool IsRunning,
     string ConversationTitle,
     DesktopApprovalTarget? Approval,
@@ -66,6 +67,11 @@ internal sealed class DesktopCodexAutomation
         "Computer Use", "Confirm", "Permission", "Approval", "Approve", "Allow", "Deny", "Cancel",
     };
 
+    private static readonly HashSet<string> HeaderChromeText = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Codex", "ChatGPT", "打开位置", "Open location", "更多", "More", "最小化", "最大化", "关闭",
+    };
+
     public DesktopCodexInspection Inspect()
     {
         try
@@ -82,33 +88,76 @@ internal sealed class DesktopCodexAutomation
 
                 var approvalRunning = approvalButtons.Any(element => NameEquals(element, "停止") || NameEquals(element, "Stop"));
                 var approvalTitle = FindConversationTitle(approvalContext) ?? "当前桌面对话";
-                return new DesktopCodexInspection(true, approvalRunning, approvalTitle, detectedApproval, null);
+                return new DesktopCodexInspection(
+                    Available: true,
+                    CanSend: approvalContext.Input is not null,
+                    IsRunning: approvalRunning,
+                    ConversationTitle: approvalTitle,
+                    Approval: detectedApproval,
+                    Error: null);
             }
 
-            var context = contexts.FirstOrDefault(candidate => candidate.Input is not null);
+            // A trusted, visible Codex window remains online when Goal/Plan mode adds a
+            // panel above the composer or replaces the composer with a user question.
+            // Writable composer availability is a narrower capability than bridge health.
+            var context = contexts.FirstOrDefault();
             if (context is null)
             {
-                return new DesktopCodexInspection(false, false, "当前桌面对话", null, "未找到包含可用输入框的 Codex 桌面窗口。请打开目标对话并保持窗口未最小化。");
+                var windowVisible = HasTrustedVisibleCodexWindow();
+                return new DesktopCodexInspection(
+                    Available: windowVisible,
+                    CanSend: false,
+                    IsRunning: windowVisible,
+                    ConversationTitle: "当前桌面对话",
+                    Approval: null,
+                    Error: windowVisible
+                        ? "Codex 目标/计划面板正在刷新，普通输入框暂不可用。"
+                        : "未找到可见的 Codex 桌面窗口。请打开目标对话并保持窗口未最小化。");
             }
 
             var buttons = FindVisibleDescendants(context.Root, ControlType.Button);
-            var running = buttons.Any(element => NameEquals(element, "停止") || NameEquals(element, "Stop"));
+            var hasStopButton = buttons.Any(element => NameEquals(element, "停止") || NameEquals(element, "Stop"));
             var approval = FindApproval(context, buttons);
             var title = FindConversationTitle(context) ?? "当前桌面对话";
-            return new DesktopCodexInspection(true, running, title, approval, null);
+            // With no normal composer and no approval control, Codex is usually running
+            // or displaying a Plan-mode question. Preserve an active state instead of
+            // incorrectly completing the task or degrading the whole bridge.
+            var running = hasStopButton || (context.Input is null && approval is null);
+            return new DesktopCodexInspection(
+                Available: true,
+                CanSend: context.Input is not null,
+                IsRunning: running,
+                ConversationTitle: title,
+                Approval: approval,
+                Error: context.Input is null ? "当前对话正在执行或等待桌面回答，普通输入框暂不可用。" : null);
         }
         catch (ElementNotAvailableException)
         {
-            return new DesktopCodexInspection(false, false, "当前桌面对话", null, "Codex 窗口正在切换，请稍后重试。");
+            return InspectionFailure("Codex 窗口正在切换，请稍后重试。");
         }
         catch (InvalidOperationException exception)
         {
-            return new DesktopCodexInspection(false, false, "当前桌面对话", null, exception.Message);
+            return InspectionFailure(exception.Message);
         }
         catch (ArgumentOutOfRangeException)
         {
-            return new DesktopCodexInspection(false, false, "当前桌面对话", null, "Codex 控件树正在刷新，请稍后重试。");
+            return InspectionFailure("Codex 控件树正在刷新，桌面窗口仍保持在线。");
         }
+    }
+
+    private static DesktopCodexInspection InspectionFailure(string error)
+    {
+        // Chromium can rebuild its accessibility tree while Goal/Plan panels or
+        // question cards are inserted. A failed tree read does not mean the trusted
+        // desktop process/window or the WSS control plane went offline.
+        var windowVisible = HasTrustedVisibleCodexWindow();
+        return new DesktopCodexInspection(
+            Available: windowVisible,
+            CanSend: false,
+            IsRunning: windowVisible,
+            ConversationTitle: "当前桌面对话",
+            Approval: null,
+            Error: error);
     }
 
     public void SendMessage(string message)
@@ -248,16 +297,42 @@ internal sealed class DesktopCodexAutomation
                     candidates.Add(new DesktopContext(process.Id, windowHandle, root, input));
                 }
             }
-            catch (Exception exception) when (exception is InvalidOperationException or ElementNotAvailableException or System.ComponentModel.Win32Exception)
+            catch (Exception exception) when (exception is InvalidOperationException or
+                                               ElementNotAvailableException or
+                                               ArgumentOutOfRangeException or
+                                               System.ComponentModel.Win32Exception)
             {
                 continue;
             }
         }
 
         return candidates
-            .OrderByDescending(context => context.Input is not null)
-            .ThenByDescending(context => context.WindowHandle == foregroundWindow)
+            .OrderByDescending(context => context.WindowHandle == foregroundWindow)
+            .ThenByDescending(context => context.Input is not null)
             .ToArray();
+    }
+
+    private static bool HasTrustedVisibleCodexWindow()
+    {
+        foreach (var process in Process.GetProcessesByName("ChatGPT"))
+        {
+            try
+            {
+                if (IsTrustedCodexProcess(process) &&
+                    EnumerateTopLevelWindows(process.Id).Any(handle => IsWindowVisible(handle) && !IsIconic(handle)))
+                {
+                    return true;
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or
+                                               ArgumentOutOfRangeException or
+                                               System.ComponentModel.Win32Exception)
+            {
+                continue;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsTrustedCodexProcess(Process process)
@@ -388,12 +463,38 @@ internal sealed class DesktopCodexAutomation
             .Where(line => line.Length > 0)
             .Where(line => !ApprovalSummaryChromeText.Contains(line))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .TakeLast(4)
             .ToArray();
-        var summary = meaningfulLines.Length == 0
-            ? "请确认是否允许当前 Codex 使用电脑功能。"
-            : string.Join("\n", meaningfulLines);
+
+        var permissionQuestion = meaningfulLines
+            .LastOrDefault(line =>
+                (line.Contains("允许", StringComparison.OrdinalIgnoreCase) ||
+                 line.Contains("Allow", StringComparison.OrdinalIgnoreCase)) &&
+                (line.Contains("使用", StringComparison.OrdinalIgnoreCase) ||
+                 line.Contains("use", StringComparison.OrdinalIgnoreCase)) &&
+                (line.EndsWith('?') || line.EndsWith('？')));
+        var summary = permissionQuestion is not null
+            ? SimplifyPermissionQuestion(permissionQuestion)
+            : meaningfulLines.Length == 0
+                ? "请确认是否允许当前 Codex 使用电脑功能。"
+                : string.Join("\n", meaningfulLines.TakeLast(2));
         return summary.Length <= 4000 ? summary : summary[..4000];
+    }
+
+    private static string SimplifyPermissionQuestion(string question)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            question,
+            @"(?:允许\s*(?:ChatGPT|Codex)?\s*使用|Allow\s+(?:ChatGPT|Codex)?\s*to\s+use)\s*(?<target>.+?)[?？]?$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            return question;
+        }
+
+        var target = match.Groups["target"].Value.Trim();
+        return string.IsNullOrWhiteSpace(target)
+            ? "请求使用电脑功能。"
+            : $"请求使用电脑功能：{target}。";
     }
 
     internal static DesktopApprovalButtonKind ClassifyApprovalButtonName(string name)
@@ -503,17 +604,30 @@ internal sealed class DesktopCodexAutomation
     private static string? FindConversationTitle(DesktopContext context)
     {
         var rootBounds = context.Root.Current.BoundingRectangle;
-        return FindVisibleDescendants(context.Root, ControlType.Text)
+        var candidates = FindVisibleDescendants(context.Root, ControlType.Text)
+            .Concat(FindVisibleDescendants(context.Root, ControlType.Button))
             .Where(element =>
             {
                 var bounds = element.Current.BoundingRectangle;
-                return bounds.Top >= rootBounds.Top + 35 &&
-                    bounds.Top <= rootBounds.Top + 100 &&
+                return bounds.Top >= rootBounds.Top + 28 &&
+                    bounds.Top <= rootBounds.Top + 125 &&
                     bounds.Left >= rootBounds.Left + Math.Min(300, rootBounds.Width * 0.15) &&
+                    bounds.Left <= rootBounds.Right - Math.Min(320, rootBounds.Width * 0.16) &&
                     element.Current.Name.Length is > 0 and <= 200;
             })
-            .Select(element => element.Current.Name.Trim())
-            .FirstOrDefault(text => !string.Equals(text, "Codex", StringComparison.OrdinalIgnoreCase));
+            .Select(element => new
+            {
+                Text = element.Current.Name.Trim(),
+                Bounds = element.Current.BoundingRectangle,
+            })
+            .Where(candidate => !HeaderChromeText.Contains(candidate.Text))
+            .Where(candidate => candidate.Text is not "…" and not "...")
+            .OrderBy(candidate => candidate.Bounds.Left)
+            .ThenBy(candidate => candidate.Bounds.Top)
+            .Select(candidate => candidate.Text)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return candidates.FirstOrDefault();
     }
 
     private static List<AutomationElement> FindVisibleDescendants(AutomationElement root, ControlType controlType)

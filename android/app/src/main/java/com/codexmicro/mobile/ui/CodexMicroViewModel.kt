@@ -38,7 +38,7 @@ data class MobileUiState(
     val destination: Destination = Destination.TASKS,
     val tasks: List<TaskItem> = emptyList(),
     val approvals: List<ApprovalRequest> = emptyList(),
-    val connection: ConnectionStatus = ConnectionStatus.Demo,
+    val connection: ConnectionStatus = ConnectionStatus.Disconnected,
     val settings: SettingsSnapshot = SettingsSnapshot(),
     val discoveredHosts: List<DiscoveredHost> = emptyList(),
     val discoveryRunning: Boolean = false,
@@ -90,9 +90,7 @@ sealed interface MobileAction {
     data class ClearSlot(val slot: Int) : MobileAction
     data class TogglePinned(val taskId: String, val pinned: Boolean) : MobileAction
     data object OpenApprovals : MobileAction
-    data class SetDemo(val enabled: Boolean) : MobileAction
     data class SetKeepConnected(val enabled: Boolean) : MobileAction
-    data object ResetDemo : MobileAction
     data object Unpair : MobileAction
     data object DismissMessage : MobileAction
 }
@@ -233,25 +231,13 @@ class CodexMicroViewModel(
                 messageObservation?.cancel()
                 selectedMessages.value = emptyList()
             }
-            is MobileAction.SetDemo -> setDemo(action.enabled)
             is MobileAction.SetKeepConnected -> setKeepConnected(action.enabled)
-            MobileAction.ResetDemo -> viewModelScope.launch {
-                if (!uiState.value.settings.demoEnabled) {
-                    message.value = "请先开启演示模式，再重置示例任务"
-                    return@launch
-                }
-                container.notifications.cancelAllApprovals()
-                container.taskRepository.resetDemoData()
-                message.value = "演示任务已重置"
-            }
             MobileAction.Unpair -> viewModelScope.launch {
                 stopForegroundConnection()
-                container.connectionRepository.useDemoAndAwait()
+                container.connectionRepository.disconnect()
                 container.settingsStore.clearPairing()
-                container.settingsStore.setDemoEnabled(true)
                 container.notifications.cancelAllApprovals()
-                container.taskRepository.resetDemoData()
-                message.value = "已解除配对，切换到演示模式"
+                message.value = "已解除配对"
             }
             MobileAction.DismissMessage -> message.value = null
         }
@@ -326,25 +312,6 @@ class CodexMicroViewModel(
                     .onFailure { message.value = operationFailureMessage(it) }
             } finally {
                 busy.value = false
-            }
-        }
-    }
-
-    private fun setDemo(enabled: Boolean) {
-        viewModelScope.launch {
-            if (enabled) {
-                stopForegroundConnection()
-                container.connectionRepository.useDemoAndAwait()
-                container.notifications.cancelAllApprovals()
-                container.taskRepository.resetDemoData()
-                container.settingsStore.setDemoEnabled(true)
-            } else {
-                container.settingsStore.setDemoEnabled(false)
-                val pairing = uiState.value.settings.pairing
-                if (pairing == null) {
-                    navigation.value = Navigation(Destination.PAIRING, null)
-                    container.connectionRepository.disconnect()
-                } else container.connectionRepository.connect(pairing)
             }
         }
     }

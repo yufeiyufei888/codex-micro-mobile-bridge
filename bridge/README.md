@@ -1,35 +1,27 @@
-# Codex Micro Desktop Sync Bridge (Windows)
+# Codex Micro Desktop Sync Bridge V2.0.0
 
-V1.0.6 is a Windows companion for the Android Codex Micro controller. It exposes a pinned-TLS, device-authenticated LAN WSS endpoint and maps the phone to the currently active Codex desktop conversation. Active rollout metadata is opened with Windows writer-compatible sharing, so a file that Codex is currently appending is not rejected as a non-root session. The existing verified binding also remains live while an exact phone prompt is being associated.
+Windows Bridge 为 Android Codex Micro 客户端提供证书绑定、设备认证的局域网 WSS 服务，并将 Codex Desktop 当前与最近对话映射为彼此独立的手机会话。
 
-## Desktop sync boundary
+## V2.0.0 行为
 
-- Text is written through Windows UI Automation to the verified Codex ProseMirror editor and sent only after the Codex process, foreground window, editor value, and focus are rechecked.
-- Stop invokes the current Codex Stop control.
-- Approval discovery requires an approval context and a supported visible action. A phone decision is applied only after the current approval fingerprint still matches; the bridge invokes the action, or uses focused Enter as a verified fallback.
-- The bridge reads the local Codex session record to return the latest assistant reply to the phone.
-- It does not use fixed coordinates, inject unconditional global keystrokes, expose credentials, or attach through an undocumented network API.
+- 当前可操作的可见 Codex 对话绑定到槽位 1；最近根会话最多占用其余槽位。
+- 本地 JSONL 的 `task_started`、`task_complete` 和 `turn_aborted` 事件决定生命周期，不再以 UI 轮询误判运行状态。
+- 回复和审批按稳定会话 ID 归属；后台会话事件不会改写当前会话。
+- Goal、计划、提问等上下文即使没有标准编辑器，也保持同步服务可用，且不会错误显示为降级。
+- UI Automation 均做窗口、控件、焦点和审批指纹复核；不满足条件时拒绝写入或批准。
+- 诊断页保留“发送手机审批测试”，仅用于验证手机审批链路。
 
-The public App Server documentation describes starting/resuming App Server-owned threads and server-initiated approvals, but does not promise concurrent takeover of an already active desktop UI conversation. Desktop sync therefore uses a deliberately narrow, fail-closed UI Automation adapter.
+## 运行
 
-## Runtime
+先启动并登录 Codex Desktop，选择要控制的对话，再启动 `CodexMicroBridge.exe`。窗口关闭后会隐藏到通知区；同一 Windows 用户只允许一个 Bridge 实例。
 
-Open and sign in to Codex Desktop first, select the conversation to control, then run `CodexMicroBridge.exe`. Closing the WPF window hides it to the notification area. The app is single-instance per Windows user.
+端点为 `/v1/mobile`，默认仅绑定私有 Wi-Fi/Ethernet 地址，使用端口 47127 及 `_codexmicro._tcp` 发现提示。二维码和后续连接都必须通过 TLS SPKI 固定与设备签名认证。
 
-Pairing opens from the local WPF UI for 60 seconds. The QR contains the WSS address, SPKI pin, nonce, expiry, and one-time code, but no OpenAI credential. Returning devices authenticate with a fresh signed challenge. The phone must verify hostname, certificate validity, and the pinned SPKI value before sending credentials.
-
-The WSS endpoint is `/v1/mobile`; complete text envelopes are limited to 1 MiB. Pairing state, TLS material, idempotency records, and cached messages remain under `%LOCALAPPDATA%\CodexMicroBridge`, with sensitive persisted fields protected by DPAPI CurrentUser.
-
-The bridge binds a selected RFC1918 Wi-Fi/Ethernet address on port 47127 and advertises `_codexmicro._tcp` as an untrusted discovery hint. It does not elevate itself or modify Windows Firewall automatically.
-
-## Build and test
+## 构建与测试
 
 ```powershell
-work\dotnet10\dotnet.exe build bridge\CodexMicroBridge.sln -c Release --no-restore
 work\dotnet10\dotnet.exe test bridge\CodexMicroBridge.sln -c Release --no-restore
 work\dotnet10\dotnet.exe publish bridge\src\CodexMicroBridge.App\CodexMicroBridge.App.csproj -c Release -r win-x64 --self-contained true --no-restore
 ```
 
-The bridge targets `net10.0-windows`. Automated tests cover protocol validation, pairing and authentication, TLS/persistence boundaries, idempotency, reducer behavior, session-response extraction, and the stable virtual desktop task. Actual Codex Desktop input, approval controls, and Windows-version accessibility behavior require interactive end-to-end verification.
-
-Legacy App Server adapter and schema projects remain in the repository for compatibility tests and historical reference, but the V1.0.6 runtime does not start an App Server child process.
+自动化覆盖协议、认证、会话生命周期、消息归属、审批绑定及 UI 自动化的适配逻辑。实际 Codex Desktop 控件结构、真实手机连接和真实 Computer Use 审批仍需人工联机验收。

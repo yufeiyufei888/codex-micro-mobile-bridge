@@ -46,10 +46,8 @@ fun SettingsScreen(
     settings: SettingsSnapshot,
     hasCameraPermission: Boolean,
     hasNotificationPermission: Boolean,
-    onSetDemo: (Boolean) -> Unit,
     onSetKeepConnected: (Boolean) -> Unit,
     onOpenPairing: () -> Unit,
-    onResetDemo: () -> Unit,
     onUnpair: () -> Unit,
     onRequestCamera: () -> Unit,
     onRequestNotifications: () -> Unit,
@@ -70,18 +68,10 @@ fun SettingsScreen(
         }
         item {
             SettingSwitch(
-                title = "演示模式",
-                detail = "使用 6 个本地示例任务，不向电脑发送操作",
-                checked = settings.demoEnabled,
-                onCheckedChange = onSetDemo,
-            )
-        }
-        item {
-            SettingSwitch(
                 title = "后台保持连接",
                 detail = "显示常驻通知并监听网络恢复；红米/小米还需在系统设置允许后台运行和无限制用电",
                 checked = settings.keepConnected,
-                enabled = settings.pairing != null && !settings.demoEnabled,
+                enabled = settings.pairing != null,
                 onCheckedChange = onSetKeepConnected,
             )
         }
@@ -138,14 +128,6 @@ fun SettingsScreen(
                 onSettings = onOpenSystemSettings,
             )
         }
-        item { SectionTitle("演示数据") }
-        item {
-            OutlinedButton(
-                onClick = onResetDemo,
-                enabled = settings.demoEnabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("恢复 6 个示例任务") }
-        }
         item {
             Text(
                 "安全说明：应用只接受 WSS；配对后的 SPKI 指纹用于确认设备身份。Keystore 私钥不可导出，日志和通知不会显示令牌。",
@@ -160,7 +142,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmUnpair = false },
             title = { Text("解除设备配对？") },
-            text = { Text("将移除保存的设备地址和证书指纹，并返回演示模式。") },
+            text = { Text("将移除保存的设备地址和证书指纹，并返回未配对状态。") },
             confirmButton = {
                 TextButton(onClick = { confirmUnpair = false; onUnpair() }) { Text("解除", color = Rose300) }
             },

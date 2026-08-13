@@ -3,6 +3,7 @@
     <style name="Theme.CodexMicro" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:statusBarColor">@color/system_bar</item>
         <item name="android:navigationBarColor">@color/system_bar</item>
         <item name="android:windowActionModeOverlay">true</item>

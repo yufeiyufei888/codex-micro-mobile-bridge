@@ -1,15 +1,24 @@
-# Local toolchains and generated delivery outputs
-work/
-outputs/
-release-assets/
-%SystemDrive%/
+# Windows / Visual Studio
+.vs/
+*.user
+*.suo
+*.nupkg
+TestResults/
 
-# Android local and generated files
-android/.gradle/
-android/.gradle-user-home/
-android/.kotlin/
-android/local.properties
+# .NET
+**/bin/
+**/obj/
+**/publish/
+.dotnet-home/
+.dotnet-local/
+dotnet-home-v2/
+
+# Android / Gradle
+.gradle/
+**/.gradle/
+**/.kotlin/
 **/build/
+android/local.properties
 *.apk
 *.aab
 *.apks
@@ -17,18 +26,7 @@ android/local.properties
 *.keystore
 keystore.properties
 
-# .NET generated files
-**/bin/
-**/obj/
-**/publish/
-*.nupkg
-*.pdb
-TestResults/
-
-# Local state, credentials, certificates, and logs
-.env
-.env.*
-!.env.example
+# Local bridge state and secrets
 *.db
 *.db-shm
 *.db-wal
@@ -40,11 +38,19 @@ TestResults/
 bridge-data/
 google-services.json
 
-# IDE and operating-system files
+# IDE / OS
 .idea/
-.vs/
 .vscode/
-*.user
-*.suo
 .DS_Store
 Thumbs.db
+
+# Research and generated delivery bundles
+work/
+release/
+outputs/
+outputs/*.zip
+outputs/*.apk
+outputs/*.exe
+outputs/*.msi
+*.zip
+*.pdb

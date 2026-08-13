@@ -10,7 +10,6 @@ import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -53,7 +52,6 @@ fun TaskStatus.visual(): StatusVisual = when (this) {
 
 @Composable
 fun ConnectionStatus.visual(): StatusVisual = when (this) {
-    ConnectionStatus.Demo -> StatusVisual("演示模式", Blue300, BlueContainer, Icons.Rounded.Science)
     ConnectionStatus.Disconnected -> StatusVisual("未连接", Slate300, SlateContainer, Icons.Rounded.CloudOff)
     ConnectionStatus.Discovering -> StatusVisual("发现设备", Blue300, BlueContainer, Icons.Rounded.Sync)
     ConnectionStatus.Connecting -> StatusVisual("正在连接", Blue300, BlueContainer, Icons.Rounded.Sync)

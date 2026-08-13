@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [TaskEntity::class, ApprovalEntity::class, TaskMessageEntity::class, PendingCommandEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class CodexMicroDatabase : RoomDatabase() {
@@ -13,6 +13,25 @@ abstract class CodexMicroDatabase : RoomDatabase() {
     abstract fun approvalDao(): ApprovalDao
     abstract fun taskMessageDao(): TaskMessageDao
     abstract fun pendingCommandDao(): PendingCommandDao
+}
+
+/**
+ * Removes only the two identities used by the retired desktop demo.
+ *
+ * The predicates deliberately do not use a broad transport or status match: early builds could
+ * store real LAN conversations beside the sample row, and those records must survive an upgrade.
+ */
+val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("DELETE FROM task_messages WHERE threadId = 'desktop-current'")
+        db.execSQL("DELETE FROM approvals WHERE id = 'approval-desktop-demo' OR threadId = 'desktop-current'")
+        db.execSQL(
+            "DELETE FROM pending_commands " +
+                "WHERE REPLACE(paramsJson, ' ', '') LIKE '%\"approvalId\":\"approval-desktop-demo\"%' " +
+                "OR REPLACE(paramsJson, ' ', '') LIKE '%\"threadId\":\"desktop-current\"%'",
+        )
+        db.execSQL("DELETE FROM tasks WHERE id = 'desktop-current'")
+    }
 }
 
 val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {

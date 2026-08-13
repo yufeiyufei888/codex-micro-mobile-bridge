@@ -40,8 +40,6 @@ enum class PlanStepState {
 
 enum class TransportKind {
     LAN_WSS,
-    BLE,
-    DEMO,
 }
 
 data class ModelOption(
@@ -143,7 +141,6 @@ data class PairingInfo(
 )
 
 sealed interface ConnectionStatus {
-    data object Demo : ConnectionStatus
     data object Disconnected : ConnectionStatus
     data object Discovering : ConnectionStatus
     data object Connecting : ConnectionStatus

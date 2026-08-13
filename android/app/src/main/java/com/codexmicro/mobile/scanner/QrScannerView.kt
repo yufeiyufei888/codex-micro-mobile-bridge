@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
-@ExperimentalGetImage
+@androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
 fun QrScannerView(
     enabled: Boolean,
     onCode: (String) -> Unit,

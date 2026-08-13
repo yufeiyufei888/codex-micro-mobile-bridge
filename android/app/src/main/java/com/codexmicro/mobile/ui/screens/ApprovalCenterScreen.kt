@@ -146,8 +146,18 @@ private fun ApprovalCard(
     }
     var menuExpanded by remember(approval.id) { mutableStateOf(false) }
     var confirmSession by remember(approval.id) { mutableStateOf(false) }
-    val displayReason = remember(approval.reason, approval.title) {
-        sanitizeApprovalReason(approval.reason, approval.title)
+    val presentation = remember(
+        approval.approvalType,
+        approval.commandPreview,
+        approval.reason,
+        approval.title,
+    ) {
+        buildApprovalPresentation(
+            approvalType = approval.approvalType,
+            commandPreview = approval.commandPreview,
+            reason = approval.reason,
+            title = approval.title,
+        )
     }
     val (icon, color, label) = when (approval.status) {
         ApprovalStatus.PENDING -> Triple(Icons.Rounded.Schedule, Amber300, "等待你的确认")
@@ -164,37 +174,22 @@ private fun ApprovalCard(
                 Text("· ${formatTime(approval.requestedAtEpochMs)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(approval.taskTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+            Text("请求内容", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
             Text(
-                approval.title,
+                presentation.request,
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            if (displayReason.isNotBlank()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "请求内容",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        displayReason,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+            if (presentation.target.isNotBlank()) {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("目标", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                        Text(presentation.target, style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
             ApprovalTypedDetails(approval)
-            if (approval.commandPreview.isNotBlank()) {
-                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-                    Text(
-                        approval.commandPreview,
-                        modifier = Modifier.padding(12.dp),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
             if (pending) {
                 if (approval.approvalType == "user_input") {
                     UserInputForm(approval, busy, onRespondUserInput)
@@ -247,12 +242,53 @@ private fun ApprovalCard(
     }
 }
 
+internal data class ApprovalPresentation(val request: String, val target: String)
+
+internal fun buildApprovalPresentation(
+    approvalType: String,
+    commandPreview: String,
+    reason: String,
+    title: String,
+): ApprovalPresentation {
+    val target = compactApprovalTarget(reason, commandPreview)
+    val request = when {
+        reason.contains("Computer Use", ignoreCase = true) ||
+            reason.contains("允许 ChatGPT 使用", ignoreCase = true) ||
+            reason.contains("Allow ChatGPT to use", ignoreCase = true) -> "允许 Codex 使用电脑功能操作目标应用？"
+        approvalType == "file_change" -> "允许修改下方列出的文件？"
+        approvalType == "permission" -> "允许使用下方列出的访问权限？"
+        approvalType == "user_input" -> sanitizeApprovalReason(reason, title)
+            .ifBlank { title.trim() }
+            .ifBlank { "请回答下方问题。" }
+        commandPreview.contains("启动 Windows 记事本", ignoreCase = true) -> "允许启动 Windows 记事本？"
+        else -> "允许执行当前电脑操作？"
+    }
+    return ApprovalPresentation(request = request, target = target)
+}
+
+internal fun compactApprovalTarget(reason: String, commandPreview: String): String {
+    val clean = sanitizeApprovalReason(reason, "")
+    val target = Regex("(?:允许\\s*ChatGPT\\s*使用|Allow\\s+ChatGPT\\s+to\\s+use)\\s+([^?？]+)", RegexOption.IGNORE_CASE)
+        .find(clean)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+    return when {
+        target.equals("notepad", ignoreCase = true) -> "Windows 记事本（notepad）"
+        !target.isNullOrBlank() -> target.take(100)
+        commandPreview.contains("启动 Windows 记事本", ignoreCase = true) -> "Windows 记事本"
+        commandPreview.isNotBlank() && !commandPreview.contains("桌面审批", ignoreCase = true) ->
+            commandPreview.replace(Regex("\\s+"), " ").trim().take(100)
+        else -> ""
+    }
+}
+
 internal fun sanitizeApprovalReason(reason: String, title: String): String {
     val genericChromeText = setOf(
         "确认", "权限", "审批", "批准", "待批准", "等待批准", "允许", "拒绝", "取消",
         "Computer Use", "Confirm", "Permission", "Approval", "Approve", "Allow", "Deny", "Cancel",
     )
-    return reason
+    val meaningful = reason
         .replace("\r\n", "\n")
         .replace('\r', '\n')
         .lineSequence()
@@ -262,8 +298,10 @@ internal fun sanitizeApprovalReason(reason: String, title: String): String {
         .filterNot { it.equals(title.trim(), ignoreCase = true) }
         .distinctBy { it.lowercase() }
         .toList()
-        .takeLast(4)
-        .joinToString("\n")
+    return meaningful.firstOrNull { line ->
+        line.contains("允许 ChatGPT 使用", ignoreCase = true) ||
+            line.contains("Allow ChatGPT to use", ignoreCase = true)
+    } ?: meaningful.takeLast(2).joinToString("；").take(180)
 }
 
 @Composable
@@ -271,24 +309,24 @@ private fun ApprovalTypedDetails(approval: ApprovalRequest) {
     val details = remember(approval.detailsJson) {
         runCatching { Json.parseToJsonElement(approval.detailsJson).jsonObject }.getOrNull()
     } ?: return
+    val cwd = remember(details) { details["cwd"]?.jsonPrimitive?.contentOrNull }
     val lines = remember(details, approval.approvalType) {
         buildList {
             when (approval.approvalType) {
-                "command" -> details["cwd"]?.jsonPrimitive?.contentOrNull?.let { add("工作目录：$it") }
+                "command" -> Unit
                 "file_change" -> {
                     details["itemId"]?.jsonPrimitive?.contentOrNull?.let { add("变更项：$it") }
-                    details["grantRoot"]?.jsonPrimitive?.contentOrNull?.let { add("授权根目录：$it") }
+                    details["grantRoot"]?.jsonPrimitive?.contentOrNull?.let { add("范围：$it") }
                     val paths = runCatching { details["paths"]?.jsonArray }.getOrNull()
                         ?.mapNotNull { it.jsonPrimitive.contentOrNull }
                     add(if (paths == null) "具体路径：电脑端未提供" else "文件：${paths.joinToString("\n")}")
                 }
                 "permission" -> {
-                    details["cwd"]?.jsonPrimitive?.contentOrNull?.let { add("工作目录：$it") }
                     val requested = details["requested"]?.jsonObject
                     requested?.get("filesystem")?.jsonArray.orEmpty().forEach { element ->
                         val row = element.jsonObject
                         add(
-                            "文件权限：${row["access"]?.jsonPrimitive?.contentOrNull.orEmpty()} " +
+                            "文件：${row["access"]?.jsonPrimitive?.contentOrNull.orEmpty()} " +
                                 row["path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         )
                     }
@@ -307,11 +345,28 @@ private fun ApprovalTypedDetails(approval: ApprovalRequest) {
             }
         }
     }
-    if (lines.isNotEmpty()) {
+    var expanded by remember(approval.id) { mutableStateOf(false) }
+    if (lines.isNotEmpty() || !cwd.isNullOrBlank()) {
+        if (lines.isNotEmpty()) {
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                Text(
+                    lines.joinToString("\n"),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+        if (!cwd.isNullOrBlank()) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "收起工作目录" else "查看工作目录")
+            }
+        }
+    }
+    if (expanded && !cwd.isNullOrBlank()) {
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
             Text(
-                lines.joinToString("\n"),
-                modifier = Modifier.padding(12.dp),
+                cwd,
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
             )

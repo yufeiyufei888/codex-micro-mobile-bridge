@@ -135,7 +135,7 @@ class ConnectionRepository(
     private val json: Json,
     private val scope: CoroutineScope,
 ) {
-    private val _status = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Demo)
+    private val _status = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     val status: StateFlow<ConnectionStatus> = _status.asStateFlow()
     private val _modelCatalog = MutableStateFlow<List<ModelOption>>(emptyList())
     val modelCatalog: StateFlow<List<ModelOption>> = _modelCatalog.asStateFlow()
@@ -244,25 +244,6 @@ class ConnectionRepository(
         ) connect(pairing)
     }
 
-    fun useDemo() = disconnect(ConnectionStatus.Demo)
-
-    suspend fun useDemoAndAwait() {
-        val previous = synchronized(this) {
-            connectionGeneration += 1
-            connectionJob.also {
-                connectionJob = null
-                it?.cancel()
-                connection?.close()
-                connection = null
-            }
-        }
-        previous?.join()
-        reducerMutex.withLock {
-            resetProtocolState()
-            _status.value = ConnectionStatus.Demo
-        }
-    }
-
     @Synchronized
     fun disconnect(next: ConnectionStatus = ConnectionStatus.Disconnected) {
         connectionGeneration += 1
@@ -277,7 +258,6 @@ class ConnectionRepository(
     suspend fun resolveApproval(id: String, decision: ApprovalDecision): Result<Unit> = runCatching {
         val approved = decision in setOf(ApprovalDecision.APPROVE_ONCE, ApprovalDecision.APPROVE_SESSION)
         when (status.value) {
-            ConnectionStatus.Demo -> Unit
             is ConnectionStatus.Online -> {
                 val approval = tasks.getApproval(id) ?: error("Approval no longer exists")
                 val epoch = currentEpochOrThrow()

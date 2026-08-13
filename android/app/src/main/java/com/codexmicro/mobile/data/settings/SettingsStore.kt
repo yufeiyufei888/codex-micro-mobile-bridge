@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.map
 private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 
 data class SettingsSnapshot(
-    val demoEnabled: Boolean = true,
     val keepConnected: Boolean = false,
     val pairing: PairingInfo? = null,
     val clientDeviceId: String = "",
@@ -44,7 +43,6 @@ class SettingsStore(private val context: Context) {
                 )
             } else null
             SettingsSnapshot(
-                demoEnabled = values[Keys.demoEnabled] ?: true,
                 // Existing paired installations are upgraded to the reliable LAN default.
                 // The user can still turn continuous monitoring off explicitly in Settings.
                 keepConnected = values[Keys.keepConnected] ?: (pairing != null),
@@ -65,7 +63,7 @@ class SettingsStore(private val context: Context) {
             values.remove(Keys.pairingCode)
             values.remove(Keys.serverNonce)
             values.remove(Keys.pairingExpiresAt)
-            values[Keys.demoEnabled] = false
+            values.remove(Keys.obsoleteModeKey)
             values[Keys.keepConnected] = true
         }
     }
@@ -85,10 +83,6 @@ class SettingsStore(private val context: Context) {
         }
     }
 
-    suspend fun setDemoEnabled(enabled: Boolean) {
-        context.settingsDataStore.edit { it[Keys.demoEnabled] = enabled }
-    }
-
     suspend fun setKeepConnected(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.keepConnected] = enabled }
     }
@@ -97,6 +91,8 @@ class SettingsStore(private val context: Context) {
         var deviceId = ""
         var displayName = "Codex Micro Android"
         context.settingsDataStore.edit { values ->
+            // V2 no longer exposes the old local showcase mode.
+            values.remove(Keys.obsoleteModeKey)
             deviceId = values[Keys.clientDeviceId] ?: buildDeviceId().also {
                 values[Keys.clientDeviceId] = it
             }
@@ -121,7 +117,7 @@ class SettingsStore(private val context: Context) {
     }
 
     private object Keys {
-        val demoEnabled = booleanPreferencesKey("demo_enabled")
+        val obsoleteModeKey = booleanPreferencesKey("demo_enabled")
         val keepConnected = booleanPreferencesKey("keep_connected")
         val hostId = stringPreferencesKey("paired_host_id")
         val deviceName = stringPreferencesKey("paired_device_name")

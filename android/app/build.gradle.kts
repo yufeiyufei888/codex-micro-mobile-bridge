@@ -15,8 +15,8 @@ android {
         applicationId = "com.codexmicro.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.0.6"
+        versionCode = 18
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -24,7 +24,12 @@ android {
 
     buildTypes {
         release {
+            // Keep one universal APK and preserve the package/signing identity used by
+            // existing side-loaded installations so V2 can be installed in place.
+            applicationIdSuffix = ".debug"
             isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

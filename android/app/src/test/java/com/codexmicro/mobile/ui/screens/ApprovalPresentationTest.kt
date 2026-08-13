@@ -36,4 +36,35 @@ class ApprovalPresentationTest {
             sanitizeApprovalReason(reason, "确认当前桌面权限"),
         )
     }
+
+    @Test
+    fun presentsComputerUseApprovalAsOneRequestAndOneTarget() {
+        val reason = "Computer Use\n允许 ChatGPT 使用 notepad?"
+
+        assertEquals(
+            ApprovalPresentation(
+                request = "允许 Codex 使用电脑功能操作目标应用？",
+                target = "Windows 记事本（notepad）",
+            ),
+            buildApprovalPresentation(
+                approvalType = "command",
+                commandPreview = "在当前 Codex 桌面审批界面执行确认",
+                title = "确认当前桌面权限",
+                reason = reason,
+            ),
+        )
+    }
+
+    @Test
+    fun doesNotRepeatGenericApprovalChromeWhenTheTargetIsUnknown() {
+        assertEquals(
+            ApprovalPresentation("允许执行当前电脑操作？", ""),
+            buildApprovalPresentation(
+                approvalType = "command",
+                commandPreview = "在当前 Codex 桌面审批界面执行确认",
+                reason = "确认\n权限\n待批准",
+                title = "确认当前桌面权限",
+            ),
+        )
+    }
 }

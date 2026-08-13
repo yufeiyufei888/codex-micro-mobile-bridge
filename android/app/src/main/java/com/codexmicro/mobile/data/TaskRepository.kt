@@ -25,8 +25,6 @@ interface TaskRepository {
     val tasks: Flow<List<TaskItem>>
     val approvals: Flow<List<ApprovalRequest>>
     fun messages(threadId: String): Flow<List<TaskMessage>>
-    suspend fun ensureDemoData()
-    suspend fun resetDemoData()
     suspend fun upsertTask(task: TaskItem)
     suspend fun upsertApproval(approval: ApprovalRequest)
     suspend fun getTask(id: String): TaskItem?
@@ -72,24 +70,6 @@ class RoomTaskRepository(
 
     override fun messages(threadId: String): Flow<List<TaskMessage>> =
         messageDao.observeForThread(threadId).map { rows -> rows.map(TaskMessageEntity::toDomain) }
-
-    override suspend fun ensureDemoData() {
-        if (taskDao.count() == 0) {
-            taskDao.upsertAll(DemoSeed.tasks().map { it.toEntity(json) })
-            approvalDao.upsertAll(DemoSeed.approvals().map { it.toEntity() })
-        }
-    }
-
-    override suspend fun resetDemoData() {
-        database.withTransaction {
-            taskDao.clear()
-            approvalDao.clear()
-            messageDao.clear()
-            pendingCommandDao.clear()
-            taskDao.upsertAll(DemoSeed.tasks().map { it.toEntity(json) })
-            approvalDao.upsertAll(DemoSeed.approvals().map { it.toEntity() })
-        }
-    }
 
     override suspend fun upsertTask(task: TaskItem) {
         taskDao.upsert(task.toEntity(json))

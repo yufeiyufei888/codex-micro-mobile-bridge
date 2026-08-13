@@ -5,6 +5,19 @@ namespace CodexMicroBridge.Tests;
 
 public sealed class DesktopSyncTests
 {
+    [Theory]
+    [InlineData(null, false, false)]
+    [InlineData("", true, false)]
+    [InlineData("desktop-session", false, false)]
+    [InlineData("desktop-session", true, true)]
+    public void DesktopApprovalRequiresAConfirmedCurrentConversation(
+        string? threadId,
+        bool confirmed,
+        bool expected)
+    {
+        Assert.Equal(expected, BridgeRuntime.IsConfirmedDesktopIdentity(threadId, confirmed));
+    }
+
     [Fact]
     public void ReadsLatestCompletedAssistantMessageFromDesktopRollout()
     {
@@ -250,7 +263,7 @@ public sealed class DesktopSyncTests
             "允许 ChatGPT 使用 notepad?",
         ]);
 
-        Assert.Equal("允许 ChatGPT 使用 notepad?", summary);
+        Assert.Equal("请求使用电脑功能：notepad。", summary);
     }
 
     [Fact]
@@ -262,7 +275,97 @@ public sealed class DesktopSyncTests
             "允许 ChatGPT 使用 notepad?",
         ]);
 
-        Assert.Equal("允许 ChatGPT 使用 notepad?", summary);
+        Assert.Equal("请求使用电脑功能：notepad。", summary);
+    }
+
+    [Fact]
+    public void ApprovalSummaryReturnsOnlyTheSpecificPermissionQuestion()
+    {
+        var summary = DesktopCodexAutomation.BuildApprovalSummary(
+        [
+            "请使用电脑功能启动 Windows 记事本。",
+            "出现权限确认后停止操作，等待我从手机批准。",
+            "确认当前桌面权限",
+            "确认",
+            "权限",
+            "确认",
+            "审批",
+            "权限",
+            "待批准",
+            "Computer Use",
+            "允许 ChatGPT 使用 notepad?",
+        ]);
+
+        Assert.Equal("请求使用电脑功能：notepad。", summary);
+        Assert.DoesNotContain("等待我从手机批准", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("确认当前桌面权限", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadsEachDesktopSessionsLifecycleIndependently()
+    {
+        var directory = Directory.CreateTempSubdirectory("codex-micro-lifecycle-isolation-");
+        try
+        {
+            var baseline = DateTime.UtcNow.AddMinutes(-1);
+            var completedPath = Path.Combine(directory.FullName, "completed.jsonl");
+            var runningPath = Path.Combine(directory.FullName, "running.jsonl");
+            var interruptedPath = Path.Combine(directory.FullName, "interrupted.jsonl");
+            WriteSessionMeta(completedPath, parentThreadId: null, source: "user", baseline);
+            WriteSessionMeta(runningPath, parentThreadId: null, source: "user", baseline);
+            WriteSessionMeta(interruptedPath, parentThreadId: null, source: "user", baseline);
+
+            AppendLifecycle(completedPath, "task_started", "turn-completed", baseline.AddSeconds(1));
+            AppendLifecycle(completedPath, "task_complete", "turn-completed", baseline.AddSeconds(4));
+            AppendLifecycle(runningPath, "task_started", "turn-running", baseline.AddSeconds(2));
+            AppendLifecycle(interruptedPath, "task_started", "turn-interrupted", baseline.AddSeconds(3));
+            AppendLifecycle(interruptedPath, "turn_aborted", "turn-interrupted", baseline.AddSeconds(5));
+
+            var reader = new DesktopSessionReader(directory.FullName);
+            var completed = Assert.IsType<DesktopSessionLifecycle>(reader.ReadLatestLifecycle(completedPath));
+            var running = Assert.IsType<DesktopSessionLifecycle>(reader.ReadLatestLifecycle(runningPath));
+            var interrupted = Assert.IsType<DesktopSessionLifecycle>(reader.ReadLatestLifecycle(interruptedPath));
+
+            Assert.Equal(DesktopSessionLifecycleKind.Completed, completed.Kind);
+            Assert.Equal("turn-completed", completed.TurnId);
+            Assert.Equal(DesktopSessionLifecycleKind.Running, running.Kind);
+            Assert.Equal("turn-running", running.TurnId);
+            Assert.Equal(DesktopSessionLifecycleKind.Interrupted, interrupted.Kind);
+            Assert.Equal("turn-interrupted", interrupted.TurnId);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void IncrementalLifecycleReaderSeesOnlyTheNewCompletedRecord()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"codex-micro-lifecycle-incremental-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            var baseline = DateTime.UtcNow.AddMinutes(-1);
+            WriteSessionMeta(path, parentThreadId: null, source: "user", baseline);
+            AppendLifecycle(path, "task_started", "turn-one", baseline.AddSeconds(1));
+
+            var reader = new DesktopSessionReader();
+            var running = Assert.IsType<DesktopSessionLifecycle>(reader.ReadLatestLifecycle(path));
+            Assert.Equal(DesktopSessionLifecycleKind.Running, running.Kind);
+            var previousLength = new FileInfo(path).Length;
+
+            AppendLifecycle(path, "task_complete", "turn-one", baseline.AddSeconds(2));
+
+            var completed = Assert.IsType<DesktopSessionLifecycle>(
+                reader.ReadLatestLifecycleSince(path, previousLength));
+            Assert.Equal(DesktopSessionLifecycleKind.Completed, completed.Kind);
+            Assert.Equal("turn-one", completed.TurnId);
+            Assert.Equal(new DateTimeOffset(baseline.AddSeconds(2)), completed.Timestamp);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -306,6 +409,108 @@ public sealed class DesktopSyncTests
         {
             directory.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public void RecentDesktopConversationsKeepDistinctStableThreadIdsAndExcludeSubagents()
+    {
+        var directory = Directory.CreateTempSubdirectory("codex-micro-conversations-");
+        try
+        {
+            var baseline = DateTime.UtcNow.AddMinutes(-2);
+            var firstPath = Path.Combine(directory.FullName, "conversation-one.jsonl");
+            WriteSessionMeta(firstPath, parentThreadId: null, source: "user", baseline);
+            AppendCanonicalMessage(firstPath, "user-one", "user", "第一个桌面对话", "turn-one", baseline.AddSeconds(1));
+            File.SetLastWriteTimeUtc(firstPath, baseline.AddSeconds(1));
+
+            var secondPath = Path.Combine(directory.FullName, "conversation-two.jsonl");
+            WriteSessionMeta(secondPath, parentThreadId: null, source: "user", baseline.AddSeconds(2));
+            AppendCanonicalMessage(secondPath, "user-two", "user", "第二个桌面对话", "turn-two", baseline.AddSeconds(3));
+            File.SetLastWriteTimeUtc(secondPath, baseline.AddSeconds(3));
+
+            var subagentPath = Path.Combine(directory.FullName, "subagent.jsonl");
+            WriteSessionMeta(subagentPath, parentThreadId: "conversation-two", source: "subagent", baseline.AddSeconds(4));
+            File.SetLastWriteTimeUtc(subagentPath, baseline.AddSeconds(4));
+
+            var conversations = new DesktopSessionReader(directory.FullName)
+                .FindRecentRootSessions(new DateTimeOffset(baseline.AddMinutes(-1)), maximumCount: 6);
+
+            Assert.Collection(
+                conversations,
+                conversation =>
+                {
+                    Assert.Equal("desktop-conversation-two", conversation.ThreadId);
+                    Assert.Equal("第二个桌面对话", conversation.Title);
+                },
+                conversation =>
+                {
+                    Assert.Equal("desktop-conversation-one", conversation.ThreadId);
+                    Assert.Equal("第一个桌面对话", conversation.Title);
+                });
+            Assert.NotEqual(conversations[0].ThreadId, conversations[1].ThreadId);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SessionIndexLatestTitleBindsTheVisibleDesktopConversation()
+    {
+        var directory = Directory.CreateTempSubdirectory("codex-micro-visible-title-");
+        try
+        {
+            var baseline = DateTime.UtcNow.AddMinutes(-1);
+            var sessionPath = Path.Combine(directory.FullName, "conversation-visible.jsonl");
+            var indexPath = Path.Combine(directory.FullName, "session_index.jsonl");
+            WriteSessionMeta(sessionPath, parentThreadId: null, source: "user", baseline);
+            AppendCanonicalMessage(sessionPath, "first-user", "user", "旧的第一条消息", "turn-one", baseline.AddSeconds(1));
+            File.WriteAllLines(indexPath,
+            [
+                JsonSerializer.Serialize(new { id = "conversation-visible", thread_name = "旧标题", updated_at = baseline }),
+                JsonSerializer.Serialize(new { id = "conversation-visible", thread_name = "规划并完成Blender作品集场景", updated_at = baseline.AddSeconds(2) }),
+            ]);
+
+            var reader = new DesktopSessionReader(directory.FullName, indexPath);
+            var match = reader.FindByVisibleTitle(
+                "规划并完成Blender作品集场景",
+                new DateTimeOffset(baseline.AddMinutes(-1)));
+
+            Assert.NotNull(match);
+            Assert.Equal("规划并完成Blender作品集场景", match.Title);
+            Assert.Equal("desktop-conversation-visible", match.ThreadId);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VisibleTitleMatchingRejectsAmbiguousShortTitles()
+    {
+        var stamp = new DesktopSessionFileStamp(1, DateTime.UtcNow);
+        var sessions = new[]
+        {
+            new DesktopSessionDescriptor("a", "a", "desktop-a", "计划A", "", stamp),
+            new DesktopSessionDescriptor("b", "b", "desktop-b", "计划B", "", stamp),
+        };
+
+        Assert.Null(DesktopSessionReader.MatchVisibleTitle("计划", sessions));
+    }
+
+    [Fact]
+    public void VisibleTitleMatchingRejectsDuplicateExactTitles()
+    {
+        var stamp = new DesktopSessionFileStamp(1, DateTime.UtcNow);
+        var sessions = new[]
+        {
+            new DesktopSessionDescriptor("a", "a", "desktop-a", "相同桌面对话", "", stamp),
+            new DesktopSessionDescriptor("b", "b", "desktop-b", "相同桌面对话", "", stamp),
+        };
+
+        Assert.Null(DesktopSessionReader.MatchVisibleTitle("相同桌面对话", sessions));
     }
 
     [Fact]
@@ -534,6 +739,24 @@ public sealed class DesktopSyncTests
                 role,
                 content = new[] { new { type = role == "user" ? "input_text" : "output_text", text } },
                 internal_chat_message_metadata_passthrough = new { turn_id = turnId },
+            },
+        }) + Environment.NewLine);
+    }
+
+    private static void AppendLifecycle(
+        string path,
+        string lifecycleType,
+        string turnId,
+        DateTime timestamp)
+    {
+        File.AppendAllText(path, JsonSerializer.Serialize(new
+        {
+            timestamp = timestamp.ToString("O"),
+            type = "event_msg",
+            payload = new
+            {
+                type = lifecycleType,
+                turn_id = turnId,
             },
         }) + Environment.NewLine);
     }

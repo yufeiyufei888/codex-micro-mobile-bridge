@@ -68,6 +68,27 @@ public sealed class BridgeStateStore
         }
     }
 
+    public bool Remove(string threadId)
+    {
+        lock (_gate)
+        {
+            if (!_tasks.Remove(threadId))
+            {
+                return false;
+            }
+
+            foreach (var turnId in _turnThreads
+                         .Where(pair => string.Equals(pair.Value, threadId, StringComparison.Ordinal))
+                         .Select(pair => pair.Key)
+                         .ToArray())
+            {
+                _turnThreads.Remove(turnId);
+            }
+
+            return true;
+        }
+    }
+
     public BridgeTaskSnapshot Register(
         string threadId,
         string? title = null,
@@ -76,20 +97,37 @@ public sealed class BridgeStateStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         BridgeTaskSnapshot changed;
+        var notify = false;
         lock (_gate)
         {
             var current = GetOrCreateLocked(threadId);
+            var nextTitle = string.IsNullOrWhiteSpace(title) ? current.Title : title;
+            var nextWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+                ? current.WorkingDirectory
+                : workingDirectory;
+            var nextProjectId = projectId ?? current.ProjectId;
+            if (string.Equals(nextTitle, current.Title, StringComparison.Ordinal) &&
+                string.Equals(nextWorkingDirectory, current.WorkingDirectory, StringComparison.Ordinal) &&
+                string.Equals(nextProjectId, current.ProjectId, StringComparison.Ordinal))
+            {
+                return current;
+            }
+
             changed = current with
             {
-                Title = string.IsNullOrWhiteSpace(title) ? current.Title : title,
-                WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? current.WorkingDirectory : workingDirectory,
-                ProjectId = projectId ?? current.ProjectId,
+                Title = nextTitle,
+                WorkingDirectory = nextWorkingDirectory,
+                ProjectId = nextProjectId,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
             _tasks[threadId] = changed;
+            notify = true;
         }
 
-        SnapshotChanged?.Invoke(changed);
+        if (notify)
+        {
+            SnapshotChanged?.Invoke(changed);
+        }
         return changed;
     }
 
@@ -205,6 +243,48 @@ public sealed class BridgeStateStore
             WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? current.WorkingDirectory : workingDirectory,
             LastError = lastError,
             IsUnread = state is BridgeTaskState.Completed or BridgeTaskState.Failed,
+        });
+    }
+
+    public BridgeTaskSnapshot ReconcileDesktopLifecycle(
+        string threadId,
+        BridgeTaskState state,
+        string turnId,
+        string? title = null,
+        string? workingDirectory = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
+        lock (_gate)
+        {
+            _turnThreads[turnId] = threadId;
+        }
+
+        return Mutate(threadId, current =>
+        {
+            var sameTurn = string.Equals(current.LastTurnId, turnId, StringComparison.Ordinal);
+            var preserveWaiting = state == BridgeTaskState.Running &&
+                sameTurn &&
+                current.State is BridgeTaskState.NeedsApproval or BridgeTaskState.NeedsReply;
+            var terminal = state is BridgeTaskState.Completed or BridgeTaskState.Failed;
+            var terminalWasRead = terminal && sameTurn && !current.IsUnread && current.State == BridgeTaskState.Idle;
+            return current with
+            {
+                State = preserveWaiting
+                    ? current.State
+                    : terminalWasRead
+                        ? BridgeTaskState.Idle
+                        : state,
+                ActiveTurnId = state == BridgeTaskState.Running ? turnId : null,
+                LastTurnId = turnId,
+                Title = string.IsNullOrWhiteSpace(title) ? current.Title : title,
+                WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+                    ? current.WorkingDirectory
+                    : workingDirectory,
+                LastError = null,
+                IsUnread = terminal
+                    ? terminalWasRead ? false : !sameTurn || current.IsUnread || current.State != BridgeTaskState.Idle
+                    : false,
+            };
         });
     }
 

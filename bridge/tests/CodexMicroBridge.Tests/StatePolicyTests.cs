@@ -187,5 +187,102 @@ public sealed class StatePolicyTests
         Assert.True(snapshot.IsUnread);
     }
 
+    [Fact]
+    public void RemovingAConversationAlsoRemovesItsTurnBindingsOnly()
+    {
+        var state = new BridgeStateStore();
+        state.Register("desktop-one", "Conversation one");
+        state.Register("desktop-two", "Conversation two");
+        state.ApplyNotification("turn/started", Element(new
+        {
+            threadId = "desktop-one",
+            turn = new { id = "turn-one", status = "inProgress" },
+        }));
+        state.ApplyNotification("turn/started", Element(new
+        {
+            threadId = "desktop-two",
+            turn = new { id = "turn-two", status = "inProgress" },
+        }));
+
+        Assert.True(state.Remove("desktop-one"));
+        Assert.Null(state.Get("desktop-one"));
+        Assert.NotNull(state.Get("desktop-two"));
+        Assert.False(state.Remove("desktop-one"));
+    }
+
+    [Fact]
+    public void DesktopLifecycleCompletionDoesNotChangeOtherRunningConversations()
+    {
+        var state = new BridgeStateStore();
+        state.Register("desktop-a", "codex micro APP");
+        state.Register("desktop-b", "开发自动连招 APP");
+        state.Register("desktop-c", "规划并完成 Blender 作品集场景");
+
+        state.ReconcileDesktopLifecycle("desktop-a", BridgeTaskState.Running, "turn-a");
+        state.ReconcileDesktopLifecycle("desktop-b", BridgeTaskState.Running, "turn-b");
+        state.ReconcileDesktopLifecycle("desktop-c", BridgeTaskState.Running, "turn-c");
+        var completed = state.ReconcileDesktopLifecycle(
+            "desktop-a",
+            BridgeTaskState.Completed,
+            "turn-a");
+
+        var runningB = Assert.IsType<BridgeTaskSnapshot>(state.Get("desktop-b"));
+        var runningC = Assert.IsType<BridgeTaskSnapshot>(state.Get("desktop-c"));
+        Assert.Equal(BridgeTaskState.Completed, completed.State);
+        Assert.True(completed.IsUnread);
+        Assert.Null(completed.ActiveTurnId);
+        Assert.Equal("turn-a", completed.LastTurnId);
+        Assert.Equal(BridgeTaskState.Running, runningB.State);
+        Assert.Equal("turn-b", runningB.ActiveTurnId);
+        Assert.False(runningB.IsUnread);
+        Assert.Equal(BridgeTaskState.Running, runningC.State);
+        Assert.Equal("turn-c", runningC.ActiveTurnId);
+        Assert.False(runningC.IsUnread);
+    }
+
+    [Fact]
+    public void AcknowledgedDesktopCompletionStaysReadWhenSameLifecycleIsReplayed()
+    {
+        var state = new BridgeStateStore();
+        state.Register("desktop-a", "codex micro APP");
+        state.ReconcileDesktopLifecycle("desktop-a", BridgeTaskState.Running, "turn-a");
+        state.ReconcileDesktopLifecycle("desktop-a", BridgeTaskState.Completed, "turn-a");
+
+        var acknowledged = state.MarkRead("desktop-a");
+        var replayed = state.ReconcileDesktopLifecycle(
+            "desktop-a",
+            BridgeTaskState.Completed,
+            "turn-a");
+
+        Assert.Equal(BridgeTaskState.Idle, acknowledged.State);
+        Assert.False(acknowledged.IsUnread);
+        Assert.Equal(BridgeTaskState.Idle, replayed.State);
+        Assert.False(replayed.IsUnread);
+        Assert.Equal("turn-a", replayed.LastTurnId);
+    }
+
+    [Theory]
+    [InlineData(false, BridgeTaskState.NeedsApproval)]
+    [InlineData(true, BridgeTaskState.NeedsReply)]
+    public void RunningLifecycleReplayPreservesWaitingStateForTheSameTurn(
+        bool isUserInput,
+        BridgeTaskState expected)
+    {
+        var state = new BridgeStateStore();
+        state.Register("desktop-a", "Waiting task");
+        state.ReconcileDesktopLifecycle("desktop-a", BridgeTaskState.Running, "turn-a");
+        state.MarkNeedsInput("desktop-a", "turn-a", isUserInput);
+
+        var replayed = state.ReconcileDesktopLifecycle(
+            "desktop-a",
+            BridgeTaskState.Running,
+            "turn-a");
+
+        Assert.Equal(expected, replayed.State);
+        Assert.Equal("turn-a", replayed.ActiveTurnId);
+        Assert.Equal("turn-a", replayed.LastTurnId);
+        Assert.False(replayed.IsUnread);
+    }
+
     private static JsonElement Element<T>(T value) => JsonSerializer.SerializeToElement(value);
 }

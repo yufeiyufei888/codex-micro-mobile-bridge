@@ -25,7 +25,8 @@ namespace CodexMicroBridge.App;
 public sealed class BridgeRuntime : IAsyncDisposable
 {
     public const int DefaultPort = 47127;
-    internal const string DesktopThreadId = "desktop-current";
+    internal const string DesktopThreadId = "desktop-current"; // Legacy V1.0.x identifier; never emitted by multi-conversation mode.
+    private const string DesktopThreadPrefix = "desktop-";
     private const int TaskReadMessageBudgetBytes = 512 * 1024;
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -71,15 +72,19 @@ public sealed class BridgeRuntime : IAsyncDisposable
     private MdnsAdvertisement? _mdns;
     private volatile bool _desktopAvailable;
     private volatile string? _desktopStatusReason = "正在检查 Codex 桌面窗口。";
-    private bool _desktopWasRunning;
     private string? _desktopSessionPath;
-    private DesktopSessionFileStamp? _desktopSessionFileStamp;
+    private string? _activeDesktopThreadId;
+    private volatile bool _desktopIdentityConfirmed;
+    private volatile bool _desktopIdentityUnconfirmed;
+    private readonly Dictionary<string, DesktopSessionFileStamp> _desktopSessionFileStamps =
+        new(StringComparer.OrdinalIgnoreCase);
+    private string? _desktopSlotLayoutKey;
     private string? _desktopSessionSyncError;
+    private string? _lastUnmatchedDesktopTitle;
     private string? _expectedDesktopPrompt;
     private DateTimeOffset _desktopPromptSentAt;
     private string? _desktopApprovalFingerprint;
     private string? _desktopApprovalId;
-    private string? _desktopTurnId;
     private long _eventSequence;
     private int _disposed;
 
@@ -113,12 +118,16 @@ public sealed class BridgeRuntime : IAsyncDisposable
 
     public bool IsDesktopCodexAvailable =>
         _desktopAvailable &&
+        _desktopIdentityConfirmed &&
         _desktopSessionPath is not null &&
+        _activeDesktopThreadId is not null &&
         _desktopSessionSyncError is null;
 
     public string? DesktopStatusReason => !_desktopAvailable
         ? _desktopStatusReason
-        : _desktopSessionSyncError is not null
+            : !_desktopIdentityConfirmed && _desktopIdentityUnconfirmed
+                ? _desktopStatusReason
+                : _desktopSessionSyncError is not null
             ? $"桌面对话记录同步暂时失败（{_desktopSessionSyncError}），正在自动重试。"
             : _desktopSessionPath is null
                 ? _expectedDesktopPrompt is null
@@ -157,13 +166,8 @@ public sealed class BridgeRuntime : IAsyncDisposable
         _pairing = new PairingService(_repository, _certificate.SpkiSha256Fingerprint);
 
         _state = new BridgeStateStore();
+        _state.Restore(await _repository.GetTasksAsync(cancellationToken).ConfigureAwait(false));
         _state.SnapshotChanged += OnSnapshotChanged;
-        _state.Register(
-            DesktopThreadId,
-            "当前 Codex 桌面对话",
-            Environment.CurrentDirectory,
-            projectId: null);
-        await _repository.AssignSlotAsync(1, DesktopThreadId, cancellationToken).ConfigureAwait(false);
         TrackBackground(StateBroadcastLoopAsync(), "broadcast ordered task state");
 
         await StartWebHostAsync(cancellationToken).ConfigureAwait(false);
@@ -193,7 +197,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         {
             AddDiagnostic("No active RFC1918 Wi-Fi/Ethernet address was found. The bridge is loopback-only; choose a private network before pairing.");
         }
-        AddDiagnostic("Desktop sync mode V1.0.6 enabled: active rollout files are read with Windows writer-compatible sharing and remain live during prompt association.");
+        AddDiagnostic("Multi-conversation desktop sync enabled: each root Codex rollout is isolated by its stable session ID; slot 1 is the active desktop conversation.");
     }
 
     private async Task DesktopSessionSyncLoopAsync()
@@ -253,29 +257,26 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 if (availabilityChanged || reasonChanged)
                 {
                     AddDiagnostic(inspection.Available
-                        ? "Verified Codex desktop window and composer are available for desktop sync."
+                        ? inspection.CanSend
+                            ? "Verified Codex desktop window and composer are available for desktop sync."
+                            : "Verified Codex desktop window; Goal/Plan interaction temporarily replaced the normal composer."
                         : $"Codex desktop sync unavailable: {inspection.Error ?? "window not found"}");
                     await BroadcastEventAsync("bridge.status", CreateBridgeStatus()).ConfigureAwait(false);
                 }
 
                 if (!inspection.Available)
                 {
-                    var current = RequireState().Get(DesktopThreadId);
-                    if (current is not null && current.State != BridgeTaskState.RecoveryUnknown)
-                    {
-                        RequireState().MarkRecoveryUnknown(DesktopThreadId, inspection.Error ?? "Codex 桌面窗口不可用。");
-                    }
                     await Task.Delay(TimeSpan.FromSeconds(1), _lifetime.Token).ConfigureAwait(false);
                     continue;
                 }
 
-                var currentTitle = RequireState().Get(DesktopThreadId)?.Title;
-                if (!string.Equals(currentTitle, inspection.ConversationTitle, StringComparison.Ordinal))
+                await BindVisibleDesktopConversationAsync(inspection.ConversationTitle).ConfigureAwait(false);
+
+                var activeThreadId = _activeDesktopThreadId;
+                if (activeThreadId is null)
                 {
-                    // The Chromium accessibility title is volatile while the page is rebuilt.
-                    // Session selection is driven by rollout-file activity and exact phone
-                    // prompts instead, so a harmless title repaint cannot detach the listener.
-                    RequireState().Register(DesktopThreadId, inspection.ConversationTitle);
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), _lifetime.Token).ConfigureAwait(false);
+                    continue;
                 }
 
                 if (inspection.Approval is not null)
@@ -290,40 +291,9 @@ public sealed class BridgeRuntime : IAsyncDisposable
                     await ResolveDesktopApprovalElsewhereAsync("resolved_elsewhere").ConfigureAwait(false);
                 }
 
-                if (inspection.Approval is null && inspection.IsRunning && !_desktopWasRunning)
-                {
-                    _desktopPromptSentAt = DateTimeOffset.UtcNow;
-                    _desktopTurnId = $"desktop-turn-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-                    RequireState().ApplyNotification("turn/started", WireElement(new
-                    {
-                        threadId = DesktopThreadId,
-                        turn = new { id = _desktopTurnId },
-                    }));
-                }
-                else if (inspection.Approval is null && !inspection.IsRunning && _desktopWasRunning)
-                {
-                    RequireState().ApplyNotification("turn/completed", WireElement(new
-                    {
-                        threadId = DesktopThreadId,
-                        turn = new { id = _desktopTurnId ?? DesktopThreadId, status = "completed" },
-                    }));
-                }
-                else if (inspection.Approval is null && !inspection.IsRunning)
-                {
-                    var snapshot = RequireState().Get(DesktopThreadId);
-                    if (snapshot is not null && snapshot.State == BridgeTaskState.RecoveryUnknown)
-                    {
-                        RequireState().ReconcileAuthoritative(
-                            DesktopThreadId,
-                            BridgeTaskState.Idle,
-                            activeTurnId: null,
-                            lastTurnId: snapshot.LastTurnId,
-                            title: inspection.ConversationTitle,
-                            lastError: null);
-                    }
-                }
-
-                _desktopWasRunning = inspection.IsRunning;
+                // Task lifecycle is authoritative in each rollout JSONL. Desktop UI
+                // controls are used only for current-conversation identity, sending and
+                // approval actions; Goal/Plan cards must never complete another task.
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
             {
@@ -369,25 +339,23 @@ public sealed class BridgeRuntime : IAsyncDisposable
 
     private async Task SynchronizeDesktopSessionIndependentlyAsync()
     {
+        DesktopSessionDescriptor? exactMatch = null;
+        var awaitingExactMatch = false;
         if (_expectedDesktopPrompt is not null)
         {
             var matchedSession = _desktopSessions.FindSessionContainingPrompt(_expectedDesktopPrompt, _desktopPromptSentAt);
             if (matchedSession is not null)
             {
-                BindDesktopSession(matchedSession, "matching the phone prompt");
+                exactMatch = _desktopSessions.ReadDescriptor(matchedSession);
+                if (exactMatch is not null)
+                {
+                    BindDesktopSession(exactMatch, "matching the phone prompt", confirmIdentity: true);
+                }
                 _expectedDesktopPrompt = null;
             }
             else if (DateTimeOffset.UtcNow - _desktopPromptSentAt < TimeSpan.FromSeconds(45))
             {
-                // Do not fall back to an older recently-written rollout while the just-sent
-                // phone prompt is still being committed. That race caused the deterministic
-                // one-turn lag: each new phone message rebound the bridge only far enough to
-                // discover the previous reply.
-                // Keep the already verified conversation live while the new prompt is
-                // being committed. Stopping the whole synchronizer here made both phone
-                // and desktop replies disappear whenever association was temporarily slow.
-                await SynchronizeDesktopConversationAsync().ConfigureAwait(false);
-                return;
+                awaitingExactMatch = true;
             }
             else
             {
@@ -396,20 +364,105 @@ public sealed class BridgeRuntime : IAsyncDisposable
             }
         }
 
-        var recentSession = _desktopSessions.FindMostRecentRootSession(DateTimeOffset.UtcNow.AddMinutes(-30));
-        if (recentSession is not null)
+        var recentSessions = _desktopSessions
+            .FindRecentRootSessions(DateTimeOffset.UtcNow.AddDays(-90), maximumCount: 6)
+            .ToList();
+        if (exactMatch is not null && recentSessions.All(session =>
+                !string.Equals(session.Path, exactMatch.Path, StringComparison.OrdinalIgnoreCase)))
         {
-            var currentStamp = _desktopSessionPath is null
-                ? null
-                : _desktopSessions.ReadFileStamp(_desktopSessionPath);
-            var candidateStamp = _desktopSessions.ReadFileStamp(recentSession);
-            if (ShouldFollowDesktopSession(_desktopSessionPath, currentStamp, recentSession, candidateStamp))
-            {
-                BindDesktopSession(recentSession, "selecting the most recently active root conversation");
-            }
+            recentSessions.Insert(0, exactMatch);
         }
 
-        await SynchronizeDesktopConversationAsync().ConfigureAwait(false);
+        var activityCandidate = recentSessions.FirstOrDefault();
+        // File activity is only a startup fallback. Once a visible desktop conversation
+        // has been selected, background writes from other running tasks must not steal
+        // the active phone binding.
+        if (!awaitingExactMatch && !_desktopIdentityUnconfirmed &&
+            _activeDesktopThreadId is null && activityCandidate is not null)
+        {
+            BindDesktopSession(activityCandidate, "initial desktop conversation discovery");
+        }
+
+        await SynchronizeDesktopConversationsAsync(recentSessions).ConfigureAwait(false);
+    }
+
+    private async Task BindVisibleDesktopConversationAsync(string visibleTitle)
+    {
+        if (string.IsNullOrWhiteSpace(visibleTitle) ||
+            string.Equals(visibleTitle, "当前桌面对话", StringComparison.Ordinal))
+        {
+            await InvalidateDesktopIdentityAsync("当前 Codex 桌面对话身份无法确认。").ConfigureAwait(false);
+            return;
+        }
+
+        await _desktopSessionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try
+        {
+            var matched = _desktopSessions.FindByVisibleTitle(
+                visibleTitle,
+                DateTimeOffset.UtcNow.AddDays(-90),
+                maximumCount: 32);
+            if (matched is null)
+            {
+                if (!string.Equals(_lastUnmatchedDesktopTitle, visibleTitle, StringComparison.Ordinal))
+                {
+                    _lastUnmatchedDesktopTitle = visibleTitle;
+                    AddDiagnostic($"Visible Codex conversation '{visibleTitle}' is not uniquely indexed yet; desktop identity is unconfirmed.");
+                }
+                await InvalidateDesktopIdentityAsync("当前 Codex 桌面对话尚未唯一匹配到会话记录。").ConfigureAwait(false);
+                return;
+            }
+
+            _lastUnmatchedDesktopTitle = null;
+            var changed = !string.Equals(matched.ThreadId, _activeDesktopThreadId, StringComparison.Ordinal);
+            if (changed)
+            {
+                BindDesktopSession(matched, $"matching the visible desktop title '{visibleTitle}'", confirmIdentity: true);
+            }
+            else
+            {
+                _desktopIdentityConfirmed = true;
+                _desktopIdentityUnconfirmed = false;
+            }
+
+            // Republish immediately instead of waiting for the file-poll loop. This
+            // makes slot 1 follow the conversation the user can actually see, while
+            // background writes remain in their own stable session slots.
+            var recentSessions = _desktopSessions
+                .FindRecentRootSessions(DateTimeOffset.UtcNow.AddDays(-90), maximumCount: 6)
+                .ToList();
+            if (recentSessions.All(session =>
+                    !string.Equals(session.ThreadId, matched.ThreadId, StringComparison.Ordinal)))
+            {
+                recentSessions.Insert(0, matched);
+            }
+            await SynchronizeDesktopConversationsAsync(recentSessions).ConfigureAwait(false);
+        }
+        finally
+        {
+            _desktopSessionGate.Release();
+        }
+    }
+
+    private async Task InvalidateDesktopIdentityAsync(string reason)
+    {
+        var changed = _desktopIdentityConfirmed || !_desktopIdentityUnconfirmed ||
+            _activeDesktopThreadId is not null || _desktopSessionPath is not null;
+        _desktopIdentityConfirmed = false;
+        _desktopIdentityUnconfirmed = true;
+        _activeDesktopThreadId = null;
+        _desktopSessionPath = null;
+        _desktopSlotLayoutKey = null;
+        if (_desktopApprovalId is not null)
+        {
+            await ResolveDesktopApprovalElsewhereAsync("expired").ConfigureAwait(false);
+        }
+        _desktopStatusReason = reason;
+        if (changed)
+        {
+            RuntimeChanged?.Invoke();
+            await BroadcastEventAsync("bridge.status", CreateBridgeStatus()).ConfigureAwait(false);
+        }
     }
 
     private async Task PublishDesktopBridgeStatusIfChangedAsync(bool previousAvailable, string? previousReason)
@@ -426,6 +479,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
 
     private async Task PublishDesktopApprovalAsync(DesktopApprovalTarget target)
     {
+        var threadId = RequireActiveDesktopThreadId();
         if (_desktopApprovalId is not null)
         {
             await ResolveDesktopApprovalElsewhereAsync("expired").ConfigureAwait(false);
@@ -436,7 +490,8 @@ public sealed class BridgeRuntime : IAsyncDisposable
         {
             var sequence = Interlocked.Increment(ref _eventSequence);
             var approvalId = $"desktop-{Epoch}-{sequence}";
-            var turnId = _desktopTurnId ?? $"desktop-turn-{sequence}";
+            var currentTask = RequireState().Get(threadId);
+            var turnId = currentTask?.ActiveTurnId ?? currentTask?.LastTurnId ?? $"desktop-turn-{sequence}";
             var allowedDecisions = target.DeclineName is null
                 ? new[] { "approve_once" }
                 : new[] { "approve_once", "decline" };
@@ -446,18 +501,18 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 WireElement(new { fingerprint = target.Fingerprint }));
             var approval = new PendingApproval(
                 approvalId,
-                DesktopThreadId,
+                threadId,
                 turnId,
                 Epoch,
                 sequence,
                 "command",
-                "确认当前桌面权限",
+                "桌面权限确认",
                 target.Summary,
                 new
                 {
                     type = "command",
                     command = "在当前 Codex 桌面审批界面执行确认",
-                    cwd = RequireState().Get(DesktopThreadId)?.WorkingDirectory ?? Environment.CurrentDirectory,
+                    cwd = RequireState().Get(threadId)?.WorkingDirectory ?? Environment.CurrentDirectory,
                     reason = target.Summary,
                     allowedDecisions,
                 },
@@ -467,7 +522,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
             _pendingApprovals[approvalId] = approval;
             _desktopApprovalId = approvalId;
             _desktopApprovalFingerprint = target.Fingerprint;
-            RequireState().MarkNeedsInput(DesktopThreadId, turnId, isUserInput: false);
+            RequireState().MarkNeedsInput(threadId, turnId, isUserInput: false);
             await SendToReadyClientsAsync("approval.requested", new { approval = approval.ToWire() }, sequence)
                 .ConfigureAwait(false);
             AddDiagnostic("Detected a verified approval control in the current Codex desktop conversation.");
@@ -505,62 +560,163 @@ public sealed class BridgeRuntime : IAsyncDisposable
         }).ConfigureAwait(false);
     }
 
-    private void BindDesktopSession(string path, string reason)
+    private void BindDesktopSession(
+        DesktopSessionDescriptor descriptor,
+        string reason,
+        bool confirmIdentity = false)
     {
-        if (string.Equals(_desktopSessionPath, path, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(_desktopSessionPath, descriptor.Path, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_activeDesktopThreadId, descriptor.ThreadId, StringComparison.Ordinal))
         {
+            if (confirmIdentity)
+            {
+                _desktopIdentityConfirmed = true;
+                _desktopIdentityUnconfirmed = false;
+            }
             return;
         }
 
-        _desktopSessionPath = path;
-        _desktopSessionFileStamp = null;
-        AddDiagnostic($"Bound desktop sync to session {Path.GetFileName(path)} after {reason}.");
+        _desktopSessionPath = descriptor.Path;
+        _activeDesktopThreadId = descriptor.ThreadId;
+        if (confirmIdentity)
+        {
+            _desktopIdentityConfirmed = true;
+            _desktopIdentityUnconfirmed = false;
+        }
+        _desktopSlotLayoutKey = null;
+        AddDiagnostic($"Bound active desktop conversation to session {descriptor.SessionId} after {reason}.");
     }
 
-    private async Task SynchronizeDesktopConversationAsync()
+    private async Task SynchronizeDesktopConversationsAsync(IReadOnlyList<DesktopSessionDescriptor> discovered)
     {
-        var path = _desktopSessionPath;
-        if (path is null)
+        var sessions = discovered
+            .GroupBy(session => session.ThreadId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+        if (_desktopSessionPath is not null && sessions.All(session =>
+                !string.Equals(session.Path, _desktopSessionPath, StringComparison.OrdinalIgnoreCase)))
         {
-            return;
+            var active = _desktopSessions.ReadDescriptor(_desktopSessionPath);
+            if (active is not null)
+            {
+                sessions.Insert(0, active);
+            }
         }
 
-        var stamp = _desktopSessions.ReadFileStamp(path);
-        if (stamp is null)
+        sessions = sessions
+            .OrderByDescending(session => string.Equals(session.ThreadId, _activeDesktopThreadId, StringComparison.Ordinal))
+            .ThenByDescending(session => session.Stamp.LastWriteTimeUtc)
+            .Take(6)
+            .ToList();
+        if (sessions.Count == 0)
         {
             _desktopSessionPath = null;
-            _desktopSessionFileStamp = null;
+            _activeDesktopThreadId = null;
             return;
         }
-        if (stamp == _desktopSessionFileStamp)
+
+        // A recent file is not proof that it is the conversation visible on screen.
+        // While identity is ambiguous/unindexed, keep polling but never manufacture
+        // a slot-1/current binding that could authorize an approval for another chat.
+        if (_desktopIdentityUnconfirmed)
         {
             return;
         }
 
-        // Re-scan a bounded canonical tail whenever the file changes. The database message ID
-        // is the idempotent cursor. This avoids depending on a byte offset captured while Codex
-        // is appending a UTF-8/JSON line, which could otherwise leave the newest response one
-        // trigger cycle behind.
-        var previousStamp = _desktopSessionFileStamp;
-        var messages = previousStamp is null
-            ? _desktopSessions.ReadCanonicalConversationMessages(path)
-            : _desktopSessions.ReadCanonicalLiveMessages(path);
+        if (_activeDesktopThreadId is null || sessions.All(session => session.ThreadId != _activeDesktopThreadId))
+        {
+            BindDesktopSession(sessions[0], "repairing the active conversation selection");
+        }
 
+        var activeThreadId = _activeDesktopThreadId!;
+        var ordered = sessions
+            .OrderByDescending(session => session.ThreadId == activeThreadId)
+            .ThenByDescending(session => session.Stamp.LastWriteTimeUtc)
+            .ToArray();
+        var selectedIds = ordered.Select(session => session.ThreadId).ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in RequireState().GetAll().Where(task =>
+                     (task.ThreadId == DesktopThreadId || task.ThreadId.StartsWith(DesktopThreadPrefix, StringComparison.Ordinal)) &&
+                     !selectedIds.Contains(task.ThreadId)).ToArray())
+        {
+            RequireState().Remove(stale.ThreadId);
+        }
+
+        foreach (var session in ordered)
+        {
+            var existing = RequireState().Get(session.ThreadId);
+            RequireState().Register(
+                session.ThreadId,
+                session.Title,
+                session.WorkingDirectory,
+                projectId: null);
+            await SynchronizeDesktopConversationAsync(session).ConfigureAwait(false);
+        }
+
+        var layoutKey = $"{activeThreadId}::{string.Join('|', ordered.Select(session => session.ThreadId))}";
+        if (!string.Equals(layoutKey, _desktopSlotLayoutKey, StringComparison.Ordinal))
+        {
+            for (var slot = 1; slot <= 6; slot++)
+            {
+                await RequireRepository().ClearSlotAsync(slot, _lifetime.Token).ConfigureAwait(false);
+            }
+            for (var index = 0; index < ordered.Length; index++)
+            {
+                await RequireRepository().AssignSlotAsync(index + 1, ordered[index].ThreadId, _lifetime.Token).ConfigureAwait(false);
+            }
+            _desktopSlotLayoutKey = layoutKey;
+            await BroadcastEventAsync("snapshot", await GetBridgeSnapshotAsync(_lifetime.Token).ConfigureAwait(false))
+                .ConfigureAwait(false);
+            AddDiagnostic($"Published an isolated desktop conversation layout with {ordered.Length} conversation(s).");
+        }
+    }
+
+    private async Task SynchronizeDesktopConversationAsync(DesktopSessionDescriptor session)
+    {
+        var stamp = _desktopSessions.ReadFileStamp(session.Path);
+        if (stamp is null || (_desktopSessionFileStamps.TryGetValue(session.Path, out var unchangedStamp) && stamp == unchangedStamp))
+        {
+            return;
+        }
+
+        var hadPreviousStamp = _desktopSessionFileStamps.TryGetValue(session.Path, out var previousStamp);
+        var incremental = hadPreviousStamp && stamp.Length >= previousStamp!.Length;
+        var messages = incremental
+            ? _desktopSessions.ReadCanonicalMessagesSince(session.Path, previousStamp!.Length) ?? []
+            : _desktopSessions.ReadCanonicalConversationMessages(session.Path);
         foreach (var message in messages)
         {
             await PersistCompletedMessageAsync(new BridgeMessage(
                 message.MessageId,
-                DesktopThreadId,
+                session.ThreadId,
                 message.TurnId,
                 message.MessageId,
                 message.Role,
                 message.Text,
                 message.Timestamp)).ConfigureAwait(false);
         }
-        _desktopSessionFileStamp = stamp;
-        if (messages.Count > 0 && previousStamp is not null)
+        var lifecycle = incremental
+            ? _desktopSessions.ReadLatestLifecycleSince(session.Path, previousStamp!.Length)
+            : _desktopSessions.ReadLatestLifecycle(session.Path);
+        if (lifecycle is not null)
         {
-            AddDiagnostic($"Desktop session change exposed {messages.Count} recent canonical message record(s); duplicates were ignored and content was suppressed.");
+            var lifecycleState = lifecycle.Kind switch
+            {
+                DesktopSessionLifecycleKind.Running => BridgeTaskState.Running,
+                DesktopSessionLifecycleKind.Completed => BridgeTaskState.Completed,
+                DesktopSessionLifecycleKind.Interrupted => BridgeTaskState.Interrupted,
+                _ => BridgeTaskState.RecoveryUnknown,
+            };
+            RequireState().ReconcileDesktopLifecycle(
+                session.ThreadId,
+                lifecycleState,
+                lifecycle.TurnId,
+                session.Title,
+                session.WorkingDirectory);
+        }
+        _desktopSessionFileStamps[session.Path] = stamp;
+        if (messages.Count > 0 && hadPreviousStamp)
+        {
+            AddDiagnostic($"Desktop session {session.SessionId} exposed {messages.Count} canonical message record(s); content was suppressed.");
         }
     }
 
@@ -583,6 +739,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         await _eventGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var threadId = RequireActiveDesktopThreadId();
             var sequence = Interlocked.Increment(ref _eventSequence);
             var approvalId = $"desktop-test-{Epoch}-{sequence}";
             var turnId = $"desktop-test-turn-{sequence}";
@@ -593,7 +750,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 WireElement(new { }));
             var approval = new PendingApproval(
                 approvalId,
-                DesktopThreadId,
+                threadId,
                 turnId,
                 Epoch,
                 sequence,
@@ -612,7 +769,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 new Dictionary<string, PermissionGrantPart>(StringComparer.Ordinal),
                 request);
             _pendingApprovals[approvalId] = approval;
-            RequireState().MarkNeedsInput(DesktopThreadId, turnId, isUserInput: false);
+            RequireState().MarkNeedsInput(threadId, turnId, isUserInput: false);
             await SendToReadyClientsAsync("approval.requested", new { approval = approval.ToWire() }, sequence)
                 .ConfigureAwait(false);
             AddDiagnostic("Sent a safe approval-chain test to the connected phone; Notepad starts only after phone approval.");
@@ -1367,9 +1524,10 @@ public sealed class BridgeRuntime : IAsyncDisposable
         {
             var prompt = RequiredString(parameters, "prompt");
             await SendToDesktopAsync(prompt, token).ConfigureAwait(false);
+            var threadId = RequireActiveDesktopThreadId();
             return WireElement(new
             {
-                task = await CreateWireTaskAsync(RequireState().Get(DesktopThreadId)!, token).ConfigureAwait(false),
+                task = await CreateWireTaskAsync(RequireState().Get(threadId)!, token).ConfigureAwait(false),
             });
         }, cancellationToken);
     }
@@ -1405,9 +1563,11 @@ public sealed class BridgeRuntime : IAsyncDisposable
         return RequireCommands().ExecuteAsync(deviceId, commandId, "task.send", parameters, async token =>
         {
             var threadId = RequireManagedThread(parameters);
+            RequireActiveDesktopThread(threadId);
             var message = RequiredString(parameters, "text");
             await SendToDesktopAsync(message, token).ConfigureAwait(false);
-            return WireElement(new { accepted = true, threadId, turnId = _desktopTurnId ?? DesktopThreadId });
+            var turnId = RequireState().Get(threadId)?.ActiveTurnId ?? RequireState().Get(threadId)?.LastTurnId ?? threadId;
+            return WireElement(new { accepted = true, threadId, turnId });
         }, cancellationToken);
     }
 
@@ -1419,6 +1579,12 @@ public sealed class BridgeRuntime : IAsyncDisposable
             throw new ProtocolException(
                 "BRIDGE_OFFLINE",
                 inspection.Error ?? "未找到当前 Codex 桌面窗口，请先打开目标对话。");
+        }
+        if (!inspection.CanSend)
+        {
+            throw new ProtocolException(
+                "BRIDGE_OFFLINE",
+                inspection.Error ?? "当前对话正在执行、显示目标/计划面板或等待电脑回答，普通输入框暂不可用。");
         }
 
         var sentAt = DateTimeOffset.UtcNow;
@@ -1439,13 +1605,13 @@ public sealed class BridgeRuntime : IAsyncDisposable
         {
             _desktopSessionGate.Release();
         }
-        _desktopTurnId = $"desktop-turn-{sentAt.ToUnixTimeMilliseconds()}";
+        var turnId = $"desktop-turn-{sentAt.ToUnixTimeMilliseconds()}";
+        var threadId = RequireActiveDesktopThreadId();
         RequireState().ApplyNotification("turn/started", WireElement(new
         {
-            threadId = DesktopThreadId,
-            turn = new { id = _desktopTurnId },
+            threadId,
+            turn = new { id = turnId },
         }));
-        _desktopWasRunning = true;
         AddDiagnostic("Phone message was written to the verified current Codex desktop composer and sent.");
     }
 
@@ -1456,6 +1622,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         return RequireCommands().ExecuteAsync(deviceId, commandId, "task.interrupt", parameters, async token =>
         {
             var threadId = RequireManagedThread(parameters);
+            RequireActiveDesktopThread(threadId);
             var requestedTurnId = RequiredString(parameters, "turnId");
             await RunDesktopActionAsync(
                 _desktopAutomation.StopCurrentTurn,
@@ -1579,6 +1746,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 }
                 else if (string.Equals(approval.Request.Method, "desktop/ui/approval", StringComparison.Ordinal))
                 {
+                    RequireActiveDesktopThread(approval.ThreadId);
                     var decision = OptionalString(response, "decision")
                         ?? throw new ProtocolException("INVALID_MESSAGE", "桌面审批响应缺少 decision。");
                     var approve = decision is "approve_once" or "approve_session";
@@ -1854,6 +2022,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         var status = snapshot.State switch
         {
             BridgeTaskState.Unassigned => "idle",
+            BridgeTaskState.Idle when snapshot.IsUnread => "completed",
             BridgeTaskState.Idle => "idle",
             BridgeTaskState.Running => "running",
             BridgeTaskState.NeedsApproval => "waiting_approval",
@@ -2036,6 +2205,32 @@ public sealed class BridgeRuntime : IAsyncDisposable
         }
 
         return threadId;
+    }
+
+    private string RequireActiveDesktopThreadId()
+    {
+        var threadId = _activeDesktopThreadId;
+        if (!IsConfirmedDesktopIdentity(threadId, _desktopIdentityConfirmed) ||
+            RequireState().Get(threadId!) is null)
+        {
+            throw new ProtocolException("BRIDGE_OFFLINE", "尚未定位电脑屏幕上当前打开的 Codex 对话。");
+        }
+
+        return threadId!;
+    }
+
+    internal static bool IsConfirmedDesktopIdentity(string? threadId, bool confirmed) =>
+        confirmed && !string.IsNullOrWhiteSpace(threadId);
+
+    private void RequireActiveDesktopThread(string threadId)
+    {
+        var activeThreadId = RequireActiveDesktopThreadId();
+        if (!string.Equals(threadId, activeThreadId, StringComparison.Ordinal))
+        {
+            throw new ProtocolException(
+                "STALE_TURN",
+                "该历史对话当前没有显示在电脑屏幕上。请先在电脑 Codex 中切换到此对话，再从手机发送或停止。");
+        }
     }
 
     private static string RequiredString(JsonElement element, string propertyName) =>

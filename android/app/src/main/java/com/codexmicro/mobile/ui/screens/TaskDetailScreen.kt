@@ -89,6 +89,7 @@ fun TaskDetailScreen(
         var message by rememberSaveable(task.id) { mutableStateOf("") }
         @Suppress("UNUSED_VARIABLE") val legacyControls = listOf(models, onFork, onAssignSlot, onClearSlot)
         val activeTurn = task.activeTurnId != null
+        val isCurrentDesktopConversation = task.slot == 1
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -149,7 +150,11 @@ fun TaskDetailScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("发送到当前桌面对话", style = MaterialTheme.typography.titleLarge)
                         Text(
-                            "电脑端当前打开哪个 Codex 对话，这条消息就发送到哪个对话。",
+                            if (isCurrentDesktopConversation) {
+                                "这就是电脑屏幕上当前打开的 Codex 对话。"
+                            } else {
+                                "这是历史对话。请先在电脑 Codex 中切换到它，待它自动置顶后再发送。"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -159,7 +164,7 @@ fun TaskDetailScreen(
                             label = { Text("给 Codex 的消息") },
                             minLines = 3,
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = online && !busy,
+                            enabled = online && !busy && isCurrentDesktopConversation,
                         )
                         if (activeTurn) {
                             Text(
@@ -172,11 +177,15 @@ fun TaskDetailScreen(
                             onClick = {
                                 onSend(message, null, null)
                             },
-                            enabled = online && !busy && message.isNotBlank(),
+                            enabled = online && !busy && isCurrentDesktopConversation && message.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
                         ) { Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null); Text("发送到桌面当前对话") }
                         if (activeTurn) {
-                            OutlinedButton(onClick = onInterrupt, enabled = online && !busy, modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = onInterrupt,
+                                enabled = online && !busy && isCurrentDesktopConversation,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
                                 Icon(Icons.Rounded.StopCircle, contentDescription = null)
                                 Text("停止当前执行")
                             }
@@ -195,7 +204,7 @@ fun TaskDetailScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("同步目标", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            "电脑屏幕上当前打开的 Codex 对话",
+                            if (isCurrentDesktopConversation) "电脑屏幕上当前打开的 Codex 对话" else "最近同步的历史 Codex 对话",
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodyMedium,
                         )
