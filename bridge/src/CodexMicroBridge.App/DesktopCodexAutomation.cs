@@ -70,7 +70,18 @@ internal sealed class DesktopCodexAutomation
     private static readonly HashSet<string> HeaderChromeText = new(StringComparer.OrdinalIgnoreCase)
     {
         "Codex", "ChatGPT", "打开位置", "Open location", "更多", "More", "最小化", "最大化", "关闭",
+        "搜索", "Search", "查看活动", "View activity", "打开已安排任务", "Open scheduled tasks",
+        "聊天操作", "Chat actions",
     };
+
+    private static readonly string[] HeaderChromePrefixes =
+    [
+        // Recent Codex Desktop builds append live state to these buttons, for
+        // example "查看活动，需要关注". Exact matching is therefore not enough.
+        "查看活动", "View activity",
+        "打开已安排任务", "Open scheduled tasks",
+        "聊天操作", "Chat actions",
+    ];
 
     public DesktopCodexInspection Inspect()
     {
@@ -620,14 +631,34 @@ internal sealed class DesktopCodexAutomation
                 Text = element.Current.Name.Trim(),
                 Bounds = element.Current.BoundingRectangle,
             })
-            .Where(candidate => !HeaderChromeText.Contains(candidate.Text))
-            .Where(candidate => candidate.Text is not "…" and not "...")
+            .Where(candidate => IsConversationTitleCandidateText(candidate.Text))
             .OrderBy(candidate => candidate.Bounds.Left)
             .ThenBy(candidate => candidate.Bounds.Top)
             .Select(candidate => candidate.Text)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return candidates.FirstOrDefault();
+    }
+
+    internal static bool IsConversationTitleCandidateText(string? text)
+    {
+        var candidate = text?.Trim() ?? string.Empty;
+        if (candidate.Length == 0 || candidate is "…" or "..." || HeaderChromeText.Contains(candidate))
+        {
+            return false;
+        }
+
+        if (HeaderChromePrefixes.Any(prefix =>
+                candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        // Recent Codex desktop builds place project/navigation buttons in the same
+        // header band as the conversation title. They are chrome, not identity.
+        return !candidate.StartsWith("项目：", StringComparison.OrdinalIgnoreCase) &&
+            !candidate.StartsWith("项目:", StringComparison.OrdinalIgnoreCase) &&
+            !candidate.StartsWith("Project:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<AutomationElement> FindVisibleDescendants(AutomationElement root, ControlType controlType)

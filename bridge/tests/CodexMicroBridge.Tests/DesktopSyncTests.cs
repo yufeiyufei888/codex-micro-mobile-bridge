@@ -1,10 +1,46 @@
 using System.Text.Json;
 using CodexMicroBridge.App;
+using CodexMicroBridge.Core.Persistence;
+using CodexMicroBridge.Core.State;
 
 namespace CodexMicroBridge.Tests;
 
 public sealed class DesktopSyncTests
 {
+    [Fact]
+    public void MobileSnapshotSelectsCurrentAndFiveAssignedOrRecentTasksFromRetainedHistory()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshots = Enumerable.Range(1, 18)
+            .Select(index => new BridgeTaskSnapshot
+            {
+                ThreadId = $"desktop-{index}",
+                Title = $"Conversation {index}",
+                WorkingDirectory = $"C:\\work\\{index}",
+                State = BridgeTaskState.Idle,
+                LastTurnId = $"turn-{index}",
+                UpdatedAt = now.AddMinutes(index),
+            })
+            .ToArray();
+        var assignments = new[]
+        {
+            new SlotAssignment(1, "desktop-18", now),
+            new SlotAssignment(2, "desktop-17", now),
+            new SlotAssignment(3, "desktop-16", now),
+            new SlotAssignment(4, "desktop-15", now),
+            new SlotAssignment(5, "desktop-14", now),
+            new SlotAssignment(6, "desktop-13", now),
+        };
+
+        var selected = BridgeRuntime.SelectMobileTaskSnapshots(snapshots, assignments, "desktop-3");
+
+        Assert.Equal(6, selected.Count);
+        Assert.Equal("desktop-3", selected[0].ThreadId);
+        Assert.Equal(
+            new[] { "desktop-3", "desktop-18", "desktop-17", "desktop-16", "desktop-15", "desktop-14" },
+            selected.Select(snapshot => snapshot.ThreadId));
+    }
+
     [Theory]
     [InlineData(null, false, false)]
     [InlineData("", true, false)]
@@ -663,6 +699,32 @@ public sealed class DesktopSyncTests
     {
         Assert.True(DesktopCodexAutomation.ComposerTextEquals(actual, expected));
         Assert.False(DesktopCodexAutomation.ComposerTextEquals(actual + "x", expected));
+    }
+
+    [Theory]
+    [InlineData("搜索")]
+    [InlineData("查看活动")]
+    [InlineData("查看活动，需要关注")]
+    [InlineData("查看活动，2 项需要关注")]
+    [InlineData("项目：股票")]
+    [InlineData("打开已安排任务")]
+    [InlineData("打开已安排任务（2）")]
+    [InlineData("聊天操作")]
+    [InlineData("Search")]
+    [InlineData("View activity, attention needed")]
+    [InlineData("Project: Stocks")]
+    public void RejectsUpdatedCodexHeaderChromeAsConversationTitles(string text)
+    {
+        Assert.False(DesktopCodexAutomation.IsConversationTitleCandidateText(text));
+    }
+
+    [Theory]
+    [InlineData("项目方案讨论")]
+    [InlineData("构建报告")]
+    [InlineData("Codex Micro APP")]
+    public void AcceptsActualConversationTitlesFromUpdatedCodexHeader(string text)
+    {
+        Assert.True(DesktopCodexAutomation.IsConversationTitleCandidateText(text));
     }
 
     [Fact]

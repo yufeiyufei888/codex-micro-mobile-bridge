@@ -1,8 +1,10 @@
-# Codex Micro Desktop Sync V2.0.0
+# Codex Micro Desktop Sync V2.0.3
 
 Codex Micro 是一套 Android 与 Windows 的局域网桌面同步控制器：手机通过证书绑定的 WSS 连接 Windows Bridge，向当前可操作的 Codex Desktop 对话发送文本、查看独立回复，并在手机端确认桌面权限请求。
 
-本仓库为私有项目。当前稳定版本是 **v1.0.6**；`main` 包含 **v2.0.0 发布候选源码**。V2.0.0 的协议、Windows、Android JVM、Release 构建和 Lint 自动门禁已经通过，但真实 Windows、Codex Desktop、Android 手机与局域网联合验收尚未完成，因此目前没有正式 `v2.0.0` 标签或 Release，也不会取代 v1.0.6 的 Latest 状态。
+本仓库为公开源码仓库。当前稳定版本是 **v1.0.6**；`main` 包含 **v2.0.3 发布候选源码**。V2.0.3 是 Windows Bridge 热修复，Android 继续使用 V2.0.0。协议与 Windows 自动门禁已经通过，但真实 Windows、Codex Desktop、Android 手机与局域网联合验收尚未完成，因此目前没有正式 `v2.0.3` 标签或 Release，也不会取代 v1.0.6 的 Latest 状态。
+
+V2.0.3 过滤 Codex 回复后临时出现的“查看活动/需要关注”等动态标题栏文案。标题短暂无法唯一识别时，Bridge 保留上一次确认的会话以继续同步，但暂停手机发送，直到桌面标题重新确认，避免消息误发到其他对话。
 
 ```mermaid
 flowchart LR
@@ -10,12 +12,14 @@ flowchart LR
     B <-->|"Windows UI Automation + 本地 JSONL"| C["Codex Desktop\n当前与最近对话"]
 ```
 
-## V2.0.0 核心能力
+## V2.0.3 核心能力
 
 - 当前可操作桌面对话固定在槽位 1；后台活动不会抢占当前卡片。
 - 当前对话与最近五个对话按稳定会话 ID 独立保存回复、状态与审批，不混用内容；这六个会话是本版手机同步范围，不承诺永久保留范围外的全部桌面历史。
 - 运行、完成、终止状态以本地 Codex JSONL 生命周期事件为准；完成后的未读卡片显示绿色状态。
 - Goal、计划和提问卡片缺少普通输入框时，网络和会话同步仍保持可用；仅发送入口临时不可用。
+- 回复结束后动态标题短暂替换对话标题时保留已确认会话，继续同步状态与回复，同时锁定发送入口。
+- 旧数据库保留任务超过六条时稳定选取当前、已分配及最近会话，不删除范围外的电脑本地历史。
 - 手机审批显示简短的操作与目标摘要，仍需长按 0.6 秒批准，并在执行前重新核对桌面审批指纹。
 - 已移除演示模式及演示数据；Android 采用通用 Release APK、R8 混淆和资源压缩。
 - 白色 Material 3 界面用卡片底色、图标和文字共同表达状态。
@@ -52,9 +56,9 @@ android\gradlew.bat -p android --no-daemon `
 
 Windows 端需要 .NET 10 SDK；Android 端需要让 `JAVA_HOME` 指向 JDK 17，并配置 Android SDK 36 与 Build Tools 36.0.0。Gradle Wrapper 会按锁定的 8.11.1 版本和 SHA-256 下载构建工具。
 
-自动化测试验证协议、会话归属、生命周期、审批绑定与 Android 本地数据迁移。真实 Codex Desktop、真实手机、局域网、后台保活及权限确认仍须做联机验收，详见 [docs/testing.md](docs/testing.md) 与 [V2.0.0 发布说明](docs/v2.0.0-release-notes.md)。
+自动化测试验证协议、会话归属、生命周期、审批绑定与 Android 本地数据迁移。真实 Codex Desktop、真实手机、局域网、后台保活及权限确认仍须做联机验收，详见 [docs/testing.md](docs/testing.md) 与 [V2.0.3 发布说明](docs/v2.0.3-release-notes.md)。
 
-当前 V2.0.0 自动证据为：Shared protocol 38 cases / 1 pair、Windows Bridge 96/96、Android JVM 10 suites / 33 tests；`assembleRelease`、`lintRelease` 和 `assembleDebugAndroidTest` 编译通过。AndroidTest APK 尚未在真机执行，不能把“测试 APK 编译成功”描述成设备验收通过。
+当前 V2.0.3 自动证据为：Shared protocol 38 cases / 1 pair、Windows Bridge 112/112。Android 本次未改源码，继续沿用 V2.0.0 的 `versionName 2.0.0`、`versionCode 18` 和原签名 APK；这不等于 V2.0.3 已通过真实手机、Codex Desktop 与局域网联合验收。
 
 ## Android 兼容与发布身份
 
@@ -71,6 +75,9 @@ Windows 端需要 .NET 10 SDK；Android 端需要让 `JAVA_HOME` 指向 JDK 17�
 | v1.0.6 | 当前 Latest；V1.x 单对话基础链路已实机验证，多对话可能混流 | 完整源码标签 |
 | v1.1.0 | 多对话隔离候选，联合实机未完成 | 历史候选二进制归档，不声明包含完整源码 |
 | v1.1.1 | Goal/计划热修复候选；后来仍有降级、抢占和状态串线 | 历史候选二进制归档，不声明包含完整源码 |
-| v2.0.0 | 当前完整源码候选；真实联合验收待完成 | `main` 候选源码，无正式 tag/Release |
+| v2.0.0 | 多会话完整源码候选；真实联合验收未形成正式发布结论 | 历史完整源码提交，无正式 tag/Release |
+| v2.0.1 | 六会话快照容量热修复候选；已被后续版本包含 | 历史候选二进制归档，不声明包含完整源码 |
+| v2.0.2 | 新版标题栏兼容候选；回复后可能误降级，已被 V2.0.3 取代 | Superseded 历史候选二进制归档，不声明包含完整源码 |
+| v2.0.3 | 当前 Windows 热修复候选；自动门禁通过，真实联合验收待完成 | `main` 完整候选源码，无正式 tag/Release |
 
 更早版本、失败记录和各标签边界见 [CHANGELOG.md](CHANGELOG.md)、[`docs/releases/`](docs/releases/) 与 [`archive/`](archive/)。禁止用当前源码改版本号伪造旧版本，禁止移动已发布标签或 force push。

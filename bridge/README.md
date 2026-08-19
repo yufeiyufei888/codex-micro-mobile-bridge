@@ -1,8 +1,10 @@
-# Codex Micro Desktop Sync Bridge V2.0.0
+# Codex Micro Desktop Sync Bridge V2.0.3
+
+V2.0.3 继续适配新版 Codex Desktop 标题栏，并过滤回复完成后短暂出现的“查看活动/需要关注”等动态文案。短暂无法唯一识别标题时，Bridge 保留上一次已确认会话以维持消息同步，同时将发送入口锁定；标题重新确认后自动恢复发送。Android V2.0.0 与本热修复兼容。
 
 Windows Bridge 为 Android Codex Micro 客户端提供证书绑定、设备认证的局域网 WSS 服务，并将 Codex Desktop 当前与最近对话映射为彼此独立的手机会话。
 
-## V2.0.0 行为
+## V2.0.0 基础行为（V2.0.3 继续保留）
 
 - 当前可操作的可见 Codex 对话绑定到槽位 1；最近根会话最多占用其余槽位。
 - 本地 JSONL 的 `task_started`、`task_complete` 和 `turn_aborted` 事件决定生命周期，不再以 UI 轮询误判运行状态。

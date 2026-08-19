@@ -71,6 +71,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
     private WebApplication? _webApplication;
     private MdnsAdvertisement? _mdns;
     private volatile bool _desktopAvailable;
+    private volatile bool _desktopCanSend;
     private volatile string? _desktopStatusReason = "正在检查 Codex 桌面窗口。";
     private string? _desktopSessionPath;
     private string? _activeDesktopThreadId;
@@ -86,6 +87,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
     private string? _desktopApprovalFingerprint;
     private string? _desktopApprovalId;
     private long _eventSequence;
+    private int _mobileSnapshotOverflowReported;
     private int _disposed;
 
     public BridgeRuntime(BridgeRuntimeOptions? options = null)
@@ -248,16 +250,32 @@ public sealed class BridgeRuntime : IAsyncDisposable
             {
                 var inspection = await Task.Run(_desktopAutomation.Inspect, _lifetime.Token).ConfigureAwait(false);
                 var availabilityChanged = _desktopAvailable != inspection.Available;
+                var titleIsIdentifiable = DesktopCodexAutomation.IsConversationTitleCandidateText(
+                    inspection.ConversationTitle) &&
+                    !string.Equals(
+                        inspection.ConversationTitle,
+                        "当前桌面对话",
+                        StringComparison.Ordinal);
+                var canSendToConfirmedConversation = inspection.CanSend && titleIsIdentifiable;
+                var sendCapabilityChanged = _desktopCanSend != canSendToConfirmedConversation;
                 var nextStatusReason = inspection.Available
                     ? null
                     : inspection.Error ?? "Codex 桌面窗口不可用。";
                 var reasonChanged = !string.Equals(_desktopStatusReason, nextStatusReason, StringComparison.Ordinal);
                 _desktopAvailable = inspection.Available;
-                _desktopStatusReason = nextStatusReason;
-                if (availabilityChanged || reasonChanged)
+                // A composer can remain visible while the header is temporarily
+                // replaced by Goal/Plan/activity chrome. Keep the last confirmed
+                // identity for status continuity, but never send until the visible
+                // conversation title is identifiable again.
+                _desktopCanSend = canSendToConfirmedConversation;
+                if (!inspection.Available)
+                {
+                    _desktopStatusReason = nextStatusReason;
+                }
+                if (availabilityChanged || sendCapabilityChanged || (!inspection.Available && reasonChanged))
                 {
                     AddDiagnostic(inspection.Available
-                        ? inspection.CanSend
+                        ? canSendToConfirmedConversation
                             ? "Verified Codex desktop window and composer are available for desktop sync."
                             : "Verified Codex desktop window; Goal/Plan interaction temporarily replaced the normal composer."
                         : $"Codex desktop sync unavailable: {inspection.Error ?? "window not found"}");
@@ -391,6 +409,17 @@ public sealed class BridgeRuntime : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(visibleTitle) ||
             string.Equals(visibleTitle, "当前桌面对话", StringComparison.Ordinal))
         {
+            if (_desktopIdentityConfirmed &&
+                _activeDesktopThreadId is not null &&
+                _desktopSessionPath is not null)
+            {
+                // Goal/Plan panels and short post-send transitions can temporarily
+                // hide the header title. Preserve the last verified binding so the
+                // phone does not report a false service degradation. Sending stays
+                // locked by DesktopAutomationLoopAsync until a title is visible.
+                _desktopStatusReason = null;
+                return;
+            }
             await InvalidateDesktopIdentityAsync("当前 Codex 桌面对话身份无法确认。").ConfigureAwait(false);
             return;
         }
@@ -401,7 +430,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
             var matched = _desktopSessions.FindByVisibleTitle(
                 visibleTitle,
                 DateTimeOffset.UtcNow.AddDays(-90),
-                maximumCount: 32);
+                maximumCount: 256);
             if (matched is null)
             {
                 if (!string.Equals(_lastUnmatchedDesktopTitle, visibleTitle, StringComparison.Ordinal))
@@ -424,6 +453,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 _desktopIdentityConfirmed = true;
                 _desktopIdentityUnconfirmed = false;
             }
+            _desktopStatusReason = null;
 
             // Republish immediately instead of waiting for the file-poll loop. This
             // makes slot 1 follow the conversation the user can actually see, while
@@ -572,6 +602,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
             {
                 _desktopIdentityConfirmed = true;
                 _desktopIdentityUnconfirmed = false;
+                _desktopStatusReason = null;
             }
             return;
         }
@@ -582,6 +613,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         {
             _desktopIdentityConfirmed = true;
             _desktopIdentityUnconfirmed = false;
+            _desktopStatusReason = null;
         }
         _desktopSlotLayoutKey = null;
         AddDiagnostic($"Bound active desktop conversation to session {descriptor.SessionId} after {reason}.");
@@ -1474,11 +1506,12 @@ public sealed class BridgeRuntime : IAsyncDisposable
 
     private async Task<JsonElement> GetBridgeSnapshotAsync(CancellationToken cancellationToken)
     {
+        var mobileSelection = await CreateMobileSnapshotSelectionAsync(cancellationToken).ConfigureAwait(false);
         return WireElement(new
         {
             bridge = CreateBridgeStatus(),
-            tasks = await CreateWireTasksAsync(cancellationToken).ConfigureAwait(false),
-            slots = await CreateWireSlotsAsync(cancellationToken).ConfigureAwait(false),
+            tasks = await CreateWireTasksAsync(mobileSelection.Tasks, cancellationToken).ConfigureAwait(false),
+            slots = CreateWireSlots(mobileSelection.Tasks, mobileSelection.Assignments),
             approvals = _pendingApprovals.Values.Select(approval => approval.ToWire()),
             projectCatalog = (await RequireProjects().ListAsync(cancellationToken).ConfigureAwait(false))
                 .Select(project => new { projectId = project.ProjectId, displayName = NonEmpty(project.DisplayName, project.ProjectId, 200) }),
@@ -1504,12 +1537,13 @@ public sealed class BridgeRuntime : IAsyncDisposable
 
     private async Task<JsonElement> ListTasksAsync(CancellationToken cancellationToken)
     {
+        var mobileSelection = await CreateMobileSnapshotSelectionAsync(cancellationToken).ConfigureAwait(false);
         return WireElement(new
         {
             epoch = Epoch,
             seq = Math.Max(1, Interlocked.Read(ref _eventSequence)),
-            slots = await CreateWireSlotsAsync(cancellationToken).ConfigureAwait(false),
-            tasks = await CreateWireTasksAsync(cancellationToken).ConfigureAwait(false),
+            slots = CreateWireSlots(mobileSelection.Tasks, mobileSelection.Assignments),
+            tasks = await CreateWireTasksAsync(mobileSelection.Tasks, cancellationToken).ConfigureAwait(false),
             projectCatalog = (await RequireProjects().ListAsync(cancellationToken).ConfigureAwait(false))
                 .Select(project => new { projectId = project.ProjectId, displayName = NonEmpty(project.DisplayName, project.ProjectId, 200) }),
             modelCatalog = GetModelCatalog(),
@@ -1957,15 +1991,60 @@ public sealed class BridgeRuntime : IAsyncDisposable
         }).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<object>> CreateWireTasksAsync(CancellationToken cancellationToken)
+    private async Task<MobileSnapshotSelection> CreateMobileSnapshotSelectionAsync(CancellationToken cancellationToken)
     {
-        var tasks = new List<object>();
         var snapshots = RequireState().GetAll();
-        if (snapshots.Count > 6)
+        var assignments = await RequireRepository().GetSlotAssignmentsAsync(cancellationToken).ConfigureAwait(false);
+        var selected = SelectMobileTaskSnapshots(snapshots, assignments, _activeDesktopThreadId);
+        if (snapshots.Count > 6 && Interlocked.Exchange(ref _mobileSnapshotOverflowReported, 1) == 0)
         {
-            throw new InvalidOperationException("Managed task capacity invariant exceeded; refusing to hide tasks.");
+            AddDiagnostic($"Loaded {snapshots.Count} retained task records; exposing the current and five most recent conversations without deleting older local history.");
         }
 
+        return new MobileSnapshotSelection(selected, assignments);
+    }
+
+    internal static IReadOnlyList<BridgeTaskSnapshot> SelectMobileTaskSnapshots(
+        IReadOnlyList<BridgeTaskSnapshot> snapshots,
+        IReadOnlyList<SlotAssignment> assignments,
+        string? activeThreadId)
+    {
+        var byThreadId = snapshots.ToDictionary(snapshot => snapshot.ThreadId, StringComparer.Ordinal);
+        var selected = new List<BridgeTaskSnapshot>(capacity: Math.Min(6, snapshots.Count));
+        var selectedIds = new HashSet<string>(StringComparer.Ordinal);
+
+        void Add(string? threadId)
+        {
+            if (selected.Count >= 6 || string.IsNullOrWhiteSpace(threadId) ||
+                !selectedIds.Add(threadId) || !byThreadId.TryGetValue(threadId, out var snapshot))
+            {
+                return;
+            }
+
+            selected.Add(snapshot);
+        }
+
+        // The visible desktop conversation must always win slot capacity. Existing
+        // assignments then preserve a stable layout across reconnects, while recency
+        // fills any remaining positions. Retained database history is never deleted.
+        Add(activeThreadId);
+        foreach (var assignment in assignments.OrderBy(assignment => assignment.Slot))
+        {
+            Add(assignment.ThreadId);
+        }
+        foreach (var snapshot in snapshots.OrderByDescending(snapshot => snapshot.UpdatedAt))
+        {
+            Add(snapshot.ThreadId);
+        }
+
+        return selected;
+    }
+
+    private async Task<IReadOnlyList<object>> CreateWireTasksAsync(
+        IReadOnlyList<BridgeTaskSnapshot> snapshots,
+        CancellationToken cancellationToken)
+    {
+        var tasks = new List<object>();
         foreach (var snapshot in snapshots)
         {
             tasks.Add(await CreateWireTaskAsync(snapshot, cancellationToken).ConfigureAwait(false));
@@ -1974,19 +2053,56 @@ public sealed class BridgeRuntime : IAsyncDisposable
         return tasks;
     }
 
-    private async Task<IReadOnlyList<object>> CreateWireSlotsAsync(CancellationToken cancellationToken)
+    private IReadOnlyList<object> CreateWireSlots(
+        IReadOnlyList<BridgeTaskSnapshot> snapshots,
+        IReadOnlyList<SlotAssignment> assignments)
     {
-        var assignments = await RequireRepository().GetSlotAssignmentsAsync(cancellationToken).ConfigureAwait(false);
-        var managedThreadIds = RequireState().GetAll().Select(task => task.ThreadId).ToHashSet(StringComparer.Ordinal);
+        var selectedThreadIds = snapshots.Select(task => task.ThreadId).ToHashSet(StringComparer.Ordinal);
+        var slotByThreadId = new Dictionary<string, int>(StringComparer.Ordinal);
+        var usedSlots = new HashSet<int>();
+
+        if (_activeDesktopThreadId is not null && selectedThreadIds.Contains(_activeDesktopThreadId))
+        {
+            slotByThreadId[_activeDesktopThreadId] = 1;
+            usedSlots.Add(1);
+        }
+
+        foreach (var assignment in assignments.OrderBy(assignment => assignment.Slot))
+        {
+            if (assignment.Slot is < 1 or > 6 || usedSlots.Contains(assignment.Slot) ||
+                !selectedThreadIds.Contains(assignment.ThreadId) || slotByThreadId.ContainsKey(assignment.ThreadId))
+            {
+                continue;
+            }
+
+            slotByThreadId[assignment.ThreadId] = assignment.Slot;
+            usedSlots.Add(assignment.Slot);
+        }
+
+        foreach (var snapshot in snapshots)
+        {
+            if (slotByThreadId.ContainsKey(snapshot.ThreadId))
+            {
+                continue;
+            }
+
+            var freeSlot = Enumerable.Range(1, 6).First(slot => !usedSlots.Contains(slot));
+            slotByThreadId[snapshot.ThreadId] = freeSlot;
+            usedSlots.Add(freeSlot);
+        }
+
         return Enumerable.Range(1, 6)
             .Select(slot => (object)new
             {
                 slot,
-                threadId = assignments.FirstOrDefault(assignment =>
-                    assignment.Slot == slot && managedThreadIds.Contains(assignment.ThreadId))?.ThreadId,
+                threadId = slotByThreadId.FirstOrDefault(entry => entry.Value == slot).Key,
             })
             .ToArray();
     }
+
+    private sealed record MobileSnapshotSelection(
+        IReadOnlyList<BridgeTaskSnapshot> Tasks,
+        IReadOnlyList<SlotAssignment> Assignments);
 
     private async Task<object> CreateWireTaskAsync(BridgeTaskSnapshot snapshot, CancellationToken cancellationToken)
     {
